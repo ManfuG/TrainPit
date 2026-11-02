@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Initialization is scaffolding and documentation only. Check docs/ROADMAP.md and docs/ISSUES.md before proposing implementation.
+        Check docs/ROADMAP.md and docs/ISSUES.md before proposing work; link an existing issue when applicable.
         Do not include private client data, credentials, keys, or real exported bundles. Use synthetic scenarios.
   - type: textarea
     id: scope

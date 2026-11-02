@@ -1,45 +1,37 @@
 # Roadmap
 
-Only repository initialization is complete. Every phase below is planned, not implemented. Proceed in order; each phase requires its acceptance criteria before the next expands the product. See [the issue backlog](ISSUES.md) for the matching work items.
+The initialization has been replaced by a working native Android application. The delivery phases below map to [the issue checklist](ISSUES.md); verification covers synthetic data, not real client records.
 
 ## 1. Roles and offline workflows
 
-- Define trainer management of multiple clients, client journeys, ownership, consent boundaries, and local-only operation without a backend.
-- Accept when synthetic scenarios distinguish a trainer's own plans, a client's own records, and explicitly consented trainer access.
+Implemented fixed trainer/client accounts, multiple consenting clients per trainer, client-owned results, and offline use after initial online account setup. Trainers do not receive project-administrator privileges.
 
 ## 2. Secure local storage
 
-- Establish local persistence and supported platform security mechanisms before storing sensitive records.
-- Accept when data survives offline restarts, storage protection and key lifecycle are documented, and loss or corruption has explicit outcomes.
+Implemented per-account Room databases, Android Keystore row encryption and signing keys, shared transactional repository instances, restart persistence, and explicit local erasure. Backups/device transfer are disabled; unavailable keys or invalid data fail explicitly rather than silently resetting storage.
 
 ## 3. Weekly training plans
 
-- Support trainer-authored weekly plans, publication, assignment, and immutable published revisions.
-- Accept when a client can view an assigned week offline and existing records retain their exact plan revision after later publication.
+Implemented trainer-authored weekly schedules, exercises and targets, assignment, immutable updates, offline client viewing, and exact historical plan references from completed sessions.
 
 ## 4. Logging and body metrics
 
-- Support client-owned training sessions, set weights and repetitions, and body-weight measurements linked to the appropriate plan revision where relevant.
-- Accept when clients can record and correct their own data offline without granting trainers ownership or implicit access.
+Implemented client-owned sessions, actual completed sets, weights/repetitions, body-weight measurements, corrections and logical deletions. Integer grams are the storage unit; actual results are never prefilled from prescribed targets.
 
 ## 5. Dashboards, charts, and statistics
 
-- Present workout schedules, progress charts, statistics, and consent-scoped trainer summaries derived from available local records.
-- Accept when calculations have defined units, periods, and missing-data behavior, and synthetic datasets verify results and access boundaries.
+Implemented weekly schedules, session/set/repetition totals, external-load volume, body-weight and progress charts. Trainer views are read-only and restricted to active clients, with separate body-weight consent. Empty or incomplete histories do not invent measurements.
 
-## 6. Portable synchronization and history import/export
+## 6. Synchronization and history import/export
 
-- Start with explicit encrypted portable bundle exchange of complete client histories or selected sessions and dependencies, including deltas and conflict handling; no backend is required.
-- Accept when repeated or interrupted imports are safe, revisions and provenance survive round trips, and unresolved conflicts are visible rather than resolved by wall-clock last-write-wins.
-- Nearby transport is optional later work, not a prerequisite or a separate implementation commitment.
+Implemented managed Firebase Auth/Firestore synchronization plus password-encrypted portable files; no self-hosted permanent server is required. Initial identity, consent and signing-key trust require connectivity. Immutable signed revisions, durable cursors, idempotent application, explicit conflicts, complete authorized histories and selected-session dependencies are documented in [SYNCHRONIZATION.md](SYNCHRONIZATION.md).
 
 ## 7. Privacy, access, and recovery
 
-- Complete consent, revocation, export/deletion, and recovery flows around local records and exchanged copies.
-- Accept when role-scoped access is enforced, recovery limits are explicit, and users understand that revocation cannot remotely erase an already received offline copy.
-- Use established cryptographic constructions and supported libraries; do not invent cryptographic primitives.
+Implemented explicit connection acceptance, body-weight opt-in, revocation, credential-gated access, protected app windows, authorized export, logical history deletion, and account-local erasure. Cloud payloads are not end-to-end encrypted. Revocation cannot erase previously received copies; recovery cannot restore unsynchronized records without an existing encrypted export. See [ROLES_AND_PRIVACY.md](ROLES_AND_PRIVACY.md).
 
-## 8. End-to-end validation
+## 8. End-to-end validation and release
 
-- Validate the assembled workflows with synthetic data on supported Android versions, including offline and failure paths.
-- Accept when agreed role, revision, privacy, storage, import/export, conflict, and recovery scenarios have reproducible results and documented limitations.
+Release gates: JVM behavior tests, Android persistence/account/cloud workflow tests, adversarial Firestore-rule tests, Android lint, signed release verification, native device workflow checks, and a downloadable APK with a checksum. [FIREBASE.md](FIREBASE.md) records backend verification; [README](../README.md#development-setup) provides reproducible commands.
+
+API-level and physical-device coverage must be stated with each release rather than inferred from successful compilation. Dependency/security updates and reported defects continue through focused issues; no additional product features are committed by this roadmap.

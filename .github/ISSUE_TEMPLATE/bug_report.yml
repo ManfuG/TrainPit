@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        This repository currently contains scaffolding and documentation only. Report existing behavior, not missing planned features.
+        Report existing TrainPit behavior with a reproducible synthetic example.
         Do not include private client data, credentials, keys, real exported bundles, or identifiable screenshots. Use synthetic examples. Report security concerns privately to maintainers.
   - type: textarea
     id: reproduction

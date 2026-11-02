@@ -6,6 +6,9 @@ local.properties
 .idea/
 *.iml
 .DS_Store
+**/node_modules/
+.firebase/
+*.log
 
 # Credentials and signing material
 .env

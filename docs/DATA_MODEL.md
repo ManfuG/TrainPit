@@ -1,57 +1,54 @@
-# Proposed data model
+# Data model
 
-This is a design contract, not an implemented schema. No database, migration, synchronization, or security guarantees exist yet. See [roles and privacy](ROLES_AND_PRIVACY.md), [synchronization](SYNCHRONIZATION.md), and the [project README](../README.md).
+Implemented types live in `core:model/.../Models.kt`; persistence implements `LocalRepository`. See [roles](ROLES_AND_PRIVACY.md), [synchronization](SYNCHRONIZATION.md) and [README](../README.md).
 
-## Storage and identifiers
+## Accounts and relationships
 
-- Use one local Room database per local identity. Switching identity closes the previous database; never combine identities into one unfiltered store. This is application-level isolation, not a claim of encryption at rest.
-- Within a trainer identity, partition client data by relationship and client identity. Every query, export, and import must carry that scope; a client selector is not an authorization check.
-- Use random, globally unique, stable identifiers, independent of names, device clocks, or local database row numbers. Imported identifiers retain their meaning. The same identifier with different immutable contents is an error, not an overwrite.
-- Local primary keys, file paths, cache state, and database schemas are not interchange formats. Charts and aggregates are derived locally from authorized source records and are never synchronized.
-- Ownership belongs to an identity, not a device. An identity can authorize multiple devices. One owning identity per mutable aggregate does not imply only one device can edit it.
-
-## Identity and access records
-
-| Record | Proposed contents and invariants |
+| Type | Contents and ownership |
 | --- | --- |
-| Identity | Stable identity ID, root verification key, display label. The root key binds the identity; labels and claimed role are not proof of a real-world person or access rights. Root replacement/recovery needs an explicit trust workflow, not a label match. |
-| Device | Device ID, owning identity ID, device signing/encryption public keys, root-authorized certificate, certificate version and retirement/revocation evidence. Private keys never enter ordinary exchanges. Device credentials cannot self-authorize a new identity or client relationship. |
-| Relationship | Stable relationship ID, trainer identity ID, client identity ID, state and explicit acceptance evidence from both parties. Scope records always name this relationship; consent is not transitive. |
-| Grant | Immutable grant/revision ID, relationship, issuer, subject identity/device, allowed record categories and actions, optional validity bounds, parent revision IDs and revocation evidence. A client controls disclosure of client-owned data; a trainer controls publication of trainer-owned plans. A received grant never silently broadens existing local consent. |
-| Pairing/peer state | Verified identity/device fingerprints, pairing transcript reference, accepted scopes, protocol versions, last verified authorization state, per-stream receive cursors and gaps. Trust and authorization are distinct from transport reachability. |
+| `Profile` | Firebase UID, display name and fixed `TRAINER`/`CLIENT` role. Names are labels, not proof of professional qualifications. |
+| `Relationship` | Deterministic trainer/client UID pair; both names; `PENDING`, `ACTIVE` or `ENDED`; separate `shareBodyWeight` consent. Trainer requests, client accepts, either ends. |
+| `DeviceKey` | Owner UID, SHA-256 public-key fingerprint/device ID, Base64 X.509 P-256 public key and revocation flag. Firebase owner-authenticated registration establishes trust; archive keys do not. |
 
-Role labels are local application capabilities. A trainer's “Admin” role means administering their own plans and consented relationships, never a global superuser. See the [permission matrix](ROLES_AND_PRIVACY.md#permission-matrix).
+A trainer manages multiple independent client relationships. Admin never means access to another trainer's clients. Clients own sessions/body weight; trainers own plans. The same client can consent independently to different relationships.
 
 ## Training records
 
-| Record | Owner and proposed contents |
+| Type | Stored facts |
 | --- | --- |
-| Exercise definition/revision | Trainer-owned prescription; stable exercise ID, immutable revision ID, name and instructions. A plan references an exact revision or embeds a minimal immutable snapshot; later edits do not rewrite old prescriptions. |
-| Weekly plan | Trainer-owned stable plan ID and metadata. Published plan contents live only in immutable revisions. A draft is local until explicitly published. |
-| Plan revision | Plan ID, revision ID, parent revision IDs, author device, ordered day definitions, exercise prescriptions and set targets. Editing a published revision creates a new revision. Parallel descendants are an explicit conflict until the owner publishes a resolution naming all resolved parents. |
-| Day/exercise/set prescription | Stable IDs within the revision, ordinal position, exercise reference/snapshot, target sets, repetition count or range, optional load and rest. Distinguish an explicit zero target from an omitted target. Rest days are represented explicitly; ordering is independent of display labels. |
-| Assignment/revision | Trainer-owned ID, relationship/client ID, exact published plan revision ID, effective local date range, schedule/time-zone context, status and parents. Never point to “latest plan.” Multiple assignments can overlap only when intentionally accepted; an unintended overlap is surfaced, not silently chosen. Updating a plan does not change an existing assignment. |
-| Session/revision | Client-owned session ID, client and relationship scope when shared, optional assignment/plan/day references, start/end instants, recorded zone, status and parents. Unplanned sessions have no assignment dependency. Preserve the performed prescription snapshot when needed to interpret results. Trainers cannot rewrite the client's record. |
-| Set result | Belongs to a client session revision; stable set ID, exercise and optional prescribed set references, actual repetitions, load and completion state. Preserve performed order and additional/skipped sets; planned values are not actual values. |
-| Body weight/revision | Client-owned measurement ID, body mass and unit, observation instant and zone or explicit date-only observation, parents and sharing scope. Body weight is not implicitly shared. |
+| `WorkoutPlan` | Intended client UID, title, Monday `weekStart`, and distinct training days. The client/week fields constitute assignment; there is no mutable “latest plan” pointer. |
+| `WorkoutDay` | ISO weekday 1–7 and ordered exercise prescriptions. Omitted days are rest/unassigned days. |
+| `ExercisePrescription` | Stable exercise ID, name, target sets/repetitions and optional external load. Exercise IDs are unique across the plan. |
+| `TrainingSession` | Calendar date, title and actual performed sets; optional exact plan-revision ID and weekday. Names/results are self-contained even if the original plan later becomes unavailable. |
+| `SetResult` | Stable set ID, exercise-name snapshot, actual repetitions/external load and optional prescribed-exercise ID. Planned values never become actual results automatically. |
+| `BodyWeight` | Measurement date and body mass. Sharing is separately controlled per trainer. |
 
-Published revisions are immutable. Updates to assignments, sessions, metrics, grants, and editable identity metadata also use immutable revisions with explicit parent IDs. References include required revisions, not just stable roots. Tombstones are owner-authorized records over a root and its known heads; they preserve deletion intent without rewriting history. See [conflict and deletion rules](SYNCHRONIZATION.md#merge-conflicts-and-deletion).
+Weights are integer **grams**; UI/interchange use kilograms with at most three decimal places. External training load may be zero for unloaded/body-weight-only work; body mass must be positive. Repetitions are integers. Supported limits: 7 training days, 40 exercises/day, 1–30 target sets, 1–1000 target repetitions, up to 400 actual sets/session, 0–1000 actual repetitions and at most 1000 kg. Empty/unknown target load is null, never an inferred actual value.
 
-## Measurements and time
+Dates are real `YYYY-MM-DD` calendar dates, years 0001–9999. A week begins on Monday. Dates are intentionally date-only, not fabricated UTC event instants; authoring time is recorded separately. Sorting fixed-width dates agrees with calendar order.
 
-- Define canonical interchange units: load/body mass in kilograms, rest in integer milliseconds, and repetitions as non-negative integers. Use fixed-scale decimal values with a documented scale per field, not binary floating-point equality. Presentation can convert to pounds or minutes without changing stored facts.
-- Load must identify its meaning: external total load, per-hand load, bodyweight, or assisted load. Do not encode bodyweight as an ambiguous zero or assistance as an unexplained negative number. A measurement kind must specify whether zero is valid; unknown is null, not zero.
-- Declare supported metric kinds and unit/range validation in the eventual versioned schema. Reject unsupported kinds or unrepresentable precision instead of guessing or silently rounding.
-- Represent event instants in UTC, preserve the recorded IANA time-zone ID and observed offset for presentation. A training day or assignment date is a calendar date with its declared zone, not midnight UTC. Date-only historical body measurements remain date-only.
-- Record observation/performance time separately from authoring/export/import time. Manual backdating is allowed and visible. Device time is descriptive, never an authority for ordering concurrent edits, granting trust, or choosing a winning revision.
+## Immutable revisions
 
-## Change and receipt metadata
+`Entry` wraps exactly one plan, session or body-weight record with:
 
-Each exportable change has a stable change ID, owner identity, originating device/stream ID, monotonically increasing stream sequence, record type/root/revision IDs, parent revision IDs, relationship and audience scope, schema version, signed content hash and optional tombstone marker. Hash the canonical serialized representation defined by the protocol, not local SQLite bytes. Immutable signed content cannot be reserialized into a different signature meaning.
+- `schemaVersion = 1`, unique revision `id`, stable `rootId`, owner/subject UIDs and record kind;
+- author device ID, descriptive authoring timestamp, parent revision IDs and deletion flag;
+- the domain payload and ECDSA/SHA-256 signature.
 
-- Persist the domain change and its outbox entry in one local transaction. Sequence allocation is transactional; committed changes cannot disappear behind a cursor. A fresh/recovered device uses a new stream, never reuses an old sequence space.
-- A stream has a fixed authorization audience/category. Sharing with another peer creates a scoped publication stream/reference while preserving original ownership and signatures. Filtering unrelated records out of a shared global stream must not manufacture unexplained acknowledgement gaps.
-- Maintain per-peer, per-stream contiguous applied sequence and sparse received ranges above it. A receipt identifies the receiver and exact stream/ranges; receiving sequence 12 does not acknowledge a missing sequence 11. Maintain durable change-ID/content-hash deduplication independently of transport archive IDs.
-- Local storage also tracks unresolved heads, missing dependencies, peer authorization evidence, import/export attempts and deletion retention state. These operational records are not client health data or authority to modify it. Receipts are scoped protocol metadata, not domain revisions.
+The root revision's ID equals `rootId` and has no parents. Subsequent revisions name complete same-root, same-owner, same-subject, same-kind ancestry. Changing a title, result or assignment creates a new signed revision; existing session plan references do not change. Device time and arrival order never choose a winner.
 
-The [synchronization contract](SYNCHRONIZATION.md) defines dependency closure, atomic import, acknowledgement, tombstone retention and recovery behavior.
+Head revisions are those not superseded by descendants. Multiple heads remain unresolved and are excluded from ordinary statistics until the owner chooses a branch and publishes a resolution. A tombstone is a signed deletion revision, not physical erasure. Concurrent delete/edit branches stay explicit. Resolution/deletion fan-in is bounded to 100 parents/revision; larger conflicts use an atomic chain of merge revisions.
+
+A signed serialized entry is limited to 262144 characters. IDs cannot contain path separators/control characters; cyclic, incomplete, cross-owner or conflicting-ID histories are rejected. Version changes must preserve the version-1 signing representation or introduce an explicit new schema; never reinterpret old signatures using a changed serializer.
+
+## Local persistence
+
+Each authenticated UID has a separate Room database, schema version 1. SQLite indexes retain opaque record/root/owner/subject IDs, kind and pending status. Record contents, relationship metadata, device-key caches, profile metadata and cloud cursors are encrypted with a per-account Android Keystore AES-256-GCM key. Index metadata and record counts are not concealed by row encryption.
+
+Domain revisions and their pending-upload flags commit atomically. Remote records and their receive cursor commit atomically. A process-wide, reference-counted account repository shares state between UI and background workers; immutable records are cached after decoding. Closing one user of the repository cannot close another's store. Explicit local erasure invalidates every reference before removing database/WAL/SHM and account keys.
+
+Room has no destructive migration fallback. Future schema changes require explicit migrations and behavioral tests. Missing keys, corrupt authenticated payloads and unsupported schemas fail closed without resetting existing records. OS/cloud backup and device-transfer extraction are excluded; unsynced records need a successful cloud upload or usable encrypted archive before local erasure.
+
+## Derived information
+
+Dashboards compute schedules, current-week sessions/sets/repetitions, external-load volume (`kg × reps`), eight-week session counts and the latest 20 body-weight points from authorized, non-deleted, non-conflicted heads. Empty histories display empty states/zero recorded totals. Charts are not synchronized or stored as authoritative health facts.

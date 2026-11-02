@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.TrainPit" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#256D5A</item>
+        <item name="android:windowBackground">#F7F9F8</item>
+    </style>
+    <color name="launcher_background">#102B28</color>
+</resources>

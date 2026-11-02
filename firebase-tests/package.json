@@ -1,0 +1,12 @@
+{
+  "name": "trainpit-firestore-security-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test --test-concurrency=1 firestore.test.mjs" },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "5.0.0",
+    "firebase": "12.5.0"
+  }
+}

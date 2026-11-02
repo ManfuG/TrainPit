@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "835040273905",
+    "project_id": "trainpit-9ab42",
+    "storage_bucket": "trainpit-9ab42.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:835040273905:android:64dd9cbc0f7c27fd475050",
+        "android_client_info": {
+          "package_name": "io.github.manfug.trainpit"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC3k12W19vQzVDvPVayM1BmYQcUFEy0cdI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

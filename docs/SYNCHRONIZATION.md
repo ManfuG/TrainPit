@@ -1,96 +1,79 @@
-# Proposed synchronization
+# Synchronization
 
-TrainPit is proposed as an offline-first application with no required backend or permanent central server. This is an implementation decision contract, not working synchronization or a security guarantee. No archive format, cryptographic dependency, key storage or transport is implemented. See the [data model](DATA_MODEL.md), [privacy rules](ROLES_AND_PRIVACY.md), and [project README](../README.md).
+TrainPit uses encrypted Room records as its working source of truth, Firebase Authentication as account authority, and Firestore as a managed exchange service. Encrypted files provide manual exchange without a live server connection after account/relationship/key setup. There is no custom always-on server, live SQLite-file replication, CRDT framework, Functions service or Storage bucket.
 
-## Baseline and transport
+See [models](DATA_MODEL.md), [ownership/privacy](ROLES_AND_PRIVACY.md) and [Firebase configuration](FIREBASE.md).
 
-The initial interchange is a portable, encrypted, versioned `.trainpit` archive explicitly exported and imported through Android file/document sharing. This is the baseline, not physical SQLite replication. Never exchange a live database, database journal or Room schema as a synchronization protocol.
+## Identity and consent bootstrap
 
-Optional nearby transport can later exchange the same envelopes and receipts after equivalent peer verification and consent. No custom CRDT framework or mandatory cloud relay is planned. WorkManager may schedule bounded opportunistic work when a usable transport, authorization and Android constraints allow it. It cannot bypass background restrictions, create connectivity, guarantee delivery, or provide guaranteed remote real-time synchronization. Manual exchange remains usable offline.
+1. Register/sign in online and select a fixed account role. Each account installation creates nonexportable Android Keystore encryption/signing keys.
+2. Synchronization registers the device's public signing key under its authenticated Firebase UID. Other devices cache these authenticated registrations; fingerprints alone or archive-provided keys never establish identity.
+3. The client shares their exact account UID through a trusted channel. The trainer requests that client; the client verifies the displayed name/UID and explicitly accepts. This enables session-history sharing; body weight remains a separate opt-in.
+4. Synchronize both devices before relying on offline file exchange. Newly enrolled devices, new relationships, scope changes and uncached signing keys require online verification.
 
-## Pairing and trust bootstrap
+The account service is a real dependency for initial setup and new trust decisions. This implementation does not offer anonymous/offline account creation, QR identity enrollment, nearby transport or self-hosted account recovery. Ordinary local use and already-authorized file exchange do not require a continuously reachable backend.
 
-1. The initiating device shows a short-lived QR invitation containing protocol version, identity/device public-key fingerprints, a fresh unpredictable challenge, requested relationship/scopes and invitation identifier. The QR contains no private keys or reusable bearer grant. Large certificates can travel in the handshake and must match the QR fingerprints.
-2. The responding device verifies protocol support and certificate chains, generates its own challenge and presents its identity/device keys and requested scopes. Both devices sign a canonical pairing transcript binding both identities, devices, challenges, invitation, protocol and proposed scopes. QR scanning alone does not complete pairing.
-3. Both people compare a transcript-derived verification code/fingerprint over an independent, trusted channel (in person is sufficient), verify the intended counterpart, and explicitly accept the relationship and scopes on each device. A screenshot, unverified remote QR, or matching display name is not proof of the intended person. Derivation and handshake must use a vetted protocol/library, not an invented cryptographic scheme.
-4. Persist the accepted transcript, pinned public keys, authorized device certificates and scoped grant evidence. Mark the one-use invitation consumed and expire abandoned handshakes. A substituted root key or new device requires an explicit authenticated enrollment/recovery decision, never silent trust-on-import.
+## Local changes and ownership
 
-Pairing establishes a peer, not unrestricted access. Consent to exchange body metrics or history is separate. Root-authorized own devices may share ownership, but must still carry current relationship scope. Conflicting identity/grant evidence blocks trust expansion.
+Every edit creates a signed immutable `Entry` revision. A Room transaction commits the revision and pending-upload flag together. Clients author only their own sessions/body weight; trainers author their own plans for an accepted client. The subject, kind and owner cannot change across a root's history.
 
-## Versioned archive envelope
+Published plan updates create descendants. Session records retain the exact performed plan-revision ID plus their own exercise names/results; a later plan edit, revoked relationship or unavailable old plan cannot rewrite those performed facts. A plan reference is an optional historical annotation, not authority to fetch another trainer's private plan.
 
-Before implementation, choose maintained audited libraries and a standard authenticated-encryption/signature container, document the exact algorithms, canonical serialization, key wrapping, resource limits and compatibility rules in a reviewed format specification. Do not design new primitives. Use library-generated fresh randomness/nonces and recipient-bound encryption; ordinary exports never contain private keys. A filename extension is only a user hint.
+Different devices may edit the same root concurrently. Complete same-root parent ancestry identifies descendants; wall-clock timestamps, device priority and arrival order never choose a winner. Multiple heads remain visible as conflicts, excluded from ordinary statistics. Only the owner publishes a resolution naming every head; more than 100 heads are resolved through an atomic bounded chain.
 
-The proposed envelope has two levels:
+## Cloud synchronization
 
-- A small bounded outer header carries format/version, cryptographic suite identifier, archive ID, recipient key identifier(s) and encrypted payload framing. Minimize exposed metadata; health data and readable manifest stay encrypted. Treat header fields as untrusted until authentication succeeds; bind relevant header bytes as authenticated associated data under the chosen standard.
-- An encrypted, signed manifest binds the archive ID, sender identity/device and certificate references, intended recipient identity/device keys, relationship/grant scope, payload schema versions, export mode, stream ranges, dependency inventory, payload hashes/counts and optional creation/expiry metadata. Creation time is descriptive, not a merge clock. Each included record/change retains owner/device provenance so forwarding does not make the exporter its author.
+`FirebaseGateway.synchronize` is single-flight across foreground/background adapters in the process. The sequence is:
 
-Use a recipient-specific export by default. A multi-device or multi-recipient export must enumerate every recipient and validate scope for each; it cannot mean “anyone with the file.” A sender signature alone is insufficient: verify authorization for each record, signed dependency and receipt. A payload digest alone is neither encryption nor proof of authorship.
+1. Verify the active Firebase UID matches the local repository and register/validate its device key.
+2. Fetch current relationships. Purge unauthorized foreign records when consent ends or body-weight scope is removed. Scope changes clear receive cursors so renewed grants reseed rather than skip previously hidden categories.
+3. Cache authenticated signing keys for the account and active peers. Known revoked keys cannot be silently reactivated or replaced.
+4. Scan the indexed pending outbox in pages of 100. Group transactions by author device and client, keeping Firestore rule-access counts bounded. Read existing revision IDs before writes: matching signed payload means an already committed retry; different contents are a collision. New documents receive authoritative `serverAt` timestamps and cannot be updated/deleted by client rules.
+5. Mark those exact local revision IDs uploaded only after the server transaction succeeds. File creation, a queued SDK write or another person's receipt is never treated as a cloud acknowledgement. Trainer plan updates for ended relationships stay local/blocked rather than preventing other clients' updates.
+6. Pull own history and each currently authorized peer/category in pages of at most 200, ordered by `serverAt` and document ID. The cursor includes timestamp seconds/nanoseconds plus ID, so equal timestamps do not skip records.
+7. Match decoded payload to its cloud envelope, validate original owner/device signatures, and fetch missing same-owner parents through an iterative bounded dependency walk. Apply valid revisions and the next source cursor in one Room transaction. Failure rolls back that page and leaves the cursor unchanged.
 
-Reject unknown mandatory versions, unsupported algorithms and invalid signatures, rather than best-effort reinterpretation. Define bounded record sizes, total expanded size, entry count, compression ratio, nesting and filename handling; reject path traversal and unsafe extraction. No arbitrary executable content, file URL fetching or automatic attachment execution is part of import.
+Own collections are account-scoped. Clients query trainer plans by `kind == PLAN` and their own subject UID. Trainers query the client's SESSION category and, only with consent, WEIGHT. Firestore rules are not filters; broader foreign queries are denied. Composite indexes support these exact queries.
 
-### Explicit acceptance and atomic import
+Firestore's persistent disk cache is disabled: only encrypted Room is durable on-device. Immutable revision contents are cached after validation; unchanged relationship/key responses do not rewrite/decrypt the entire local history. Query cursors and pending flags survive process restarts.
 
-1. Open into bounded app-private staging. Parse defensively; authenticate/decrypt with an intended local recipient key. Verify signature chains and recipient identity/device binding against the active local identity. Never offer a wrong-identity archive to an unrelated local database.
-2. Validate manifest, hashes, schema/units, unique IDs, sequence consistency, ownership, relationship scope, known revocations, dependency closure and parent references before changing domain state. Reusing a change/revision/stream-sequence ID with different signed contents is a hard error. A forged or missing dependency is not a default value.
-3. Present the verified sender/recipient, categories, record counts, requested scope changes and expected conflicts. Require explicit acceptance for this import; accepting data does not automatically accept a broader grant or new trusted key. Previously committed duplicate archives can show their prior receipt rather than reapplying changes.
-4. Apply all accepted records, immutable conflict heads, tombstones, deduplication entries, outbox consequences and receive cursors in one local database transaction. Stage file-backed content first and commit durable references only after all files are complete; roll back domain state on failure. A rejected or incomplete archive gets no applied receipt. Retain staging only for an explicit retry and clean it safely.
-5. Only after commit, issue a signed receipt bound to the receiver, sender/stream and committed change ranges. Imported data may produce visible unresolved conflicts without failing atomicity; invalid data may not partially apply.
+Foreground checks run when unlocked/visible and approximately every minute; edits request a background-safe synchronization attempt, and **Sync** is an explicit retry/status action. Network-constrained WorkManager runs roughly hourly, starting after an initial hour rather than duplicating launch synchronization. Android scheduling, connectivity and free quotas can delay delivery. This is eventual synchronization, not a real-time or always-complete remote view: initial/reseed pulls may show partial history until the current sync finishes.
 
-Replay protection is layered: recipient binding, pairing challenge consumption, stable archive IDs, durable change IDs/hashes and stream-sequence validation. Re-importing identical committed content is a no-op with the same acknowledgement meaning. A different archive containing an old accepted change is also a no-op; changing its archive ID does not evade deduplication or a tombstone. Keep compact replay/deletion evidence when payloads are pruned.
+## Encrypted file format
 
-## Export scope and dependencies
+The app writes `.trainpit` files through Android's document picker. Version 1 is:
 
-Offer two explicit exchange modes: full authorized history for a chosen relationship/category, or selected sessions. Both are merge-only exchanges, not backup/restore.
+```text
+TPARCH01 (8 ASCII bytes)
+PBKDF2 iterations (4-byte big-endian integer, exactly 600000)
+salt (16 random bytes)
+GCM nonce (12 random bytes)
+AES-256-GCM ciphertext of UTF-8 ArchiveManifest JSON, followed by its 16-byte tag
+```
 
-- Compute the transitive dependency closure: selected session revisions and set results, relevant assignment and exact plan/day/exercise revisions or authorized immutable snapshots, parent revisions needed for conflict interpretation, owner/device certificates, applicable grants and deletion evidence. Include only data necessary and authorized for that recipient.
-- Selected sessions do not imply all body metrics, other sessions, other clients, drafts, private notes or private keys. A referenced object must have an authorized exportable representation; if none exists, block the export and explain the dependency rather than leak it or emit a dangling reference.
-- “Full history” includes retained revisions and tombstones inside the selected consent scope. It does not claim to recover history that was lawfully compacted, deleted locally, or never received. Show this limitation before export.
-- Split large histories into bounded, independently valid pages with dependency closure or references to recipient-acknowledged dependencies. Never require committing an incomplete page. A manifest may group pages, but each committed archive must stand alone against known recipient state.
-- Receipts are portable, signed, recipient-bound protocol records and can return in a later archive; there is no assumed network return channel. Sending a file does not imply it was imported.
+PBKDF2-HMAC-SHA256 derives the AES key from a user-provided passphrase of at least 12 characters, using the [OWASP PBKDF2 work-factor baseline](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2). The complete 40-byte header is authenticated associated data. Java/Android standard cryptographic APIs supply the primitives and randomness; no custom cryptographic algorithm is used. Keys/plaintext byte buffers are cleared where possible; immutable UI strings cannot be promised forensic erasure.
 
-## Delta exchange and receipts
+The encrypted manifest contains format/archive ID, declared exporter UID, client subject UID, export time/mode, original signed revisions and their public verification keys. Record signatures establish **record authorship**, not the identity of whoever forwarded the file. The exporter field is informational; there is no separate exporter signature or recipient-specific public-key encryption. Anyone holding the archive passphrase can decrypt/repackage it. Share the password separately and never treat the password or declared exporter as a new access grant.
 
-Use an append-only outbox per originating device and fixed audience/category stream. Allocate monotonic sequences transactionally with domain changes; rollover or device replacement creates a new stream. Preserve original author signatures if an authorized peer relays records. The relay cannot manufacture an owner's changes, authorization or receipts.
+Limits: 32 MiB encoded file, 50000 revisions/device keys, JSON nesting at most 32, supported entry schema 1, and bounded per-record metadata. Unsupported versions, wrong passwords, corrupt authentication tags, malformed UTF-8/JSON, excessive sizes and invalid signatures are rejected. This is a single encrypted JSON payload, not ZIP extraction or executable content.
 
-Maintain receiver state separately for each peer and stream:
+## Export, preview and atomic import
 
-- A contiguous applied cursor covers only the complete prefix; sparse applied ranges above it preserve holes. Applying 10 and 12 while 11 is absent yields cursor 10 plus range 12, not cursor 12. A later 11 closes the gap. Duplicate sequences must match the original contents.
-- A selected-session archive can leave holes intentionally. Its receipt acknowledges only applied ranges; it never pretends that filtered-out changes were received. Streams scoped to a different audience do not share acknowledgement state. Scope expansion publishes newly authorized history explicitly rather than silently treating it as already acknowledged.
-- Validate receipts against that peer's identity, authorization and records actually published to it. A receipt from client A cannot advance client B's cursor. One peer's receipt cannot delete updates needed by another peer or an offline authorized device.
-- Unsent and unacknowledged updates remain discoverable until the relevant peer acknowledges them or that peer is explicitly retired/reseeded under the retention policy. Do not clear an outbox merely because an export file was created. A receipt acknowledging retained conflict branches means durable receipt, not conflict resolution.
+- **Full client history:** all retained, locally authorized revisions and tombstones for the selected client. A trainer cannot export another client's partition or body-weight history without its consent.
+- **Selected sessions:** selected session roots and their complete revision ancestry, plus available/authorized exact plan dependencies and plan ancestry. Unrelated sessions and body-weight measurements are excluded. Unavailable external plan references remain opaque annotations; performed results stay self-contained.
+- No file includes private signing/encryption keys, account passwords or Firebase refresh tokens. Export never clears an outbox or advances cloud acknowledgement state.
+- Import is merge-only into the currently authenticated account's allowed client scope. It cannot change account identity, enroll keys, replace a database, overwrite revision contents, remove known conflict branches or roll back a retained tombstone.
+- Decryption/preview validates archive bounds, subject consistency, dependencies, cached trusted keys, signatures, role/consent and ID collisions before showing counts. The user explicitly confirms import. Commit revalidates current permissions and merges atomically; duplicates do not create additional facts. Newly recovered own revisions enter the account's outbox; foreign revisions never become locally authored uploads.
+- Draft secrets, selected URI and operation state live only in a ViewModel. Android activity-result/navigation keys survive credential relocking separately, so a long file-picker visit does not lose the pending import/export. Process death can still interrupt an unsaved operation. A failed destination write may leave an incomplete external file; authentication prevents that file being accepted as valid history.
 
-Index outbox by audience/stream/sequence, changes by unique ID/hash, revisions by root/parents, dependencies by referenced revision, and receipts by peer/stream/range. Query bounded pages after the cursor plus requested holes; cap bytes, records, transaction duration and dependency expansion. Do not load an entire history or scan every client's partition for each exchange. Persist pagination state and retry from committed boundaries. Derived chart data is excluded.
+An archive cannot prove that it contains all records ever created or every later deletion. “Full” means all retained authorized local history at export time, not a recovery of erased/never-received data. Complete an online baseline on a new/reconsented device before assuming its history is current. Offline import cannot discover deletion/revocation evidence that the device has never received.
 
-## Merge, conflicts and deletion
+## Deletion, revocation and recovery
 
-Single-author roots mean one owning identity, not one writable device. Two authorized devices can concurrently edit an assignment, session, metric or plan. Every revision names its parent revision IDs; revision ancestry, not timestamps or import order, determines causality.
+Tombstones retain deletion intent and causal history; the app does not prune them by elapsed time. Replayed ancestors cannot override a retained deletion head. Concurrent delete/edit branches require owner resolution. Local removal of another owner's imported copies is not an author-signed deletion of their records.
 
-- A descendant can advance a root's head when all required parents are present. Identical revisions deduplicate. Divergent heads remain explicit unresolved conflicts; retain both branches and identify their provenance. No last-writer-wins by wall clock, arrival order or device priority.
-- Only the owning identity can publish a resolution revision naming all heads it resolves. Another party can flag a conflict but cannot rewrite ownership. No generic automatic field merge or CRDT framework is assumed.
-- A published plan revision remains immutable; resolving a newer plan does not mutate existing assignments or historical session references. Assignment conflicts must not silently choose a different training prescription. Preserve performed facts even when their referenced plan is retired.
-- A tombstone is a signed owner-authored change with root ID, known parent heads, scope and deletion intent. It prevents replayed ancestors from restoring a deleted record. An edit concurrent with deletion is an explicit delete-versus-edit conflict, hidden from normal active presentation until owner resolution; import order cannot resurrect it. Any restoration requires a deliberate owner revision resolving the tombstone and competing heads, not an old archive replay.
-- Keep tombstones, deduplication summaries and sufficient causal metadata until all relevant authorized peers acknowledge them. An indefinitely offline peer prevents ordinary safe pruning. Time alone is not evidence that deletion reached it.
-- To bound retention, explicitly retire stale peer/stream membership and record a new baseline/retention epoch. An old peer cannot resume incremental exchange across that boundary. Require renewed pairing/consent and a recipient-specific reseed that includes current deletion fences and conflict heads; block old-epoch deltas. Re-pairing does not authorize resurrection from its old local database. The returning peer must reconcile its local unsent records explicitly before switching baseline.
+Server authorization changes block subsequent unauthorized server reads immediately. Informed devices purge their now-unauthorized imported copies. Offline recipients cannot learn unseen revocations or be forced to erase previously disclosed files/data. Cloud JSON uses TLS/access control/managed encryption, not end-to-end encryption; administrators remain trusted.
 
-Deleting imported payloads locally must preserve enough minimal deletion/replay evidence to avoid accidental restoration. These records and trust metadata have their own documented retention policy. Tombstones communicate deletion; they cannot remotely erase previously decrypted copies.
+A new installation signs in, enrolls a fresh device key and downloads authorized cloud records/registered verification keys. Original private keys and old sequence identities are not restored or exported. A valid encrypted archive can recover unsynced history only when its original device key can be authenticated and the current account/relationship permits the data. A never-registered lost key, forgotten file passphrase or missing unsynced copy may be unrecoverable. Known revoked-key histories fail closed; compromised-key reconciliation is not inferred from claimed creation times.
 
-## Authorization freshness and key loss
-
-Validate each archive against locally known device/grant state, not just the grant included by its sender. Apply restrictive revocation evidence before permitting data that depends on it. Conflicting authorization heads fail closed for new access; they are not resolved by timestamp. Optional expiry can bound use under stated clock assumptions, but clocks and offline expiry cannot prove that a grant is the latest.
-
-An offline recipient cannot know about an unseen revocation. Show last verified state and require explicit acknowledgement of stale authorization risk on offline acceptance/export. Once revocation is known, deny newly arriving changes signed under the revoked authority; a signed historical timestamp does not prove pre-revocation authorship. Already accepted records need an explicit retention/reconciliation decision, not silent historical rewriting. Ending a relationship stops future disclosure on informed devices, not copies already held elsewhere.
-
-Lost or compromised device: retire its certificate from a still-trusted identity device/recovery root, rotate affected keys, notify peers at next exchange and re-pair as necessary. Root-key compromise needs an independently verified new trust root; possession of the compromised root is insufficient proof. Lost recipient keys can render old archives undecryptable. Without usable recovery material, create a new identity and obtain fresh relationships; never impersonate the old identity by reusing its label.
-
-## Exchange versus backup and recovery
-
-| Workflow | Required semantics |
-| --- | --- |
-| Ordinary import/export | Merge-only into the intended existing identity and relationship; never clear tables, replace keys or reset receipts. Accept scoped, authorized records and preserve tombstones/conflicts. |
-| Encrypted backup | Separate explicitly labelled artifact/version covering the chosen identity's full retained local records, trust state, causal/deletion/receipt metadata and a deliberate key-recovery policy. It is not a shareable trainer/client archive. Protect with reviewed library-supported recovery encryption and an independently stored recovery secret; explain that exported plaintext cannot be recovered securely by a forgotten password reset. |
-| Restore | Explicit destructive local operation, separate from import, with identity verification and user consent. Restore only to an empty/replaced identity store; do not roll back a live store's monotonic security state through ordinary merge. Treat backup receipts/authorization as potentially stale, obtain current peer state before new sharing, and prevent replay across retention epochs. |
-| Identity recovery/new device | Recover identity authority only from valid encrypted recovery material or an already authorized device using a reviewed enrollment flow. Issue a new device ID/keys/stream; never resume a restored device's old sequence counters. Verify with peers, reconcile unsent backup changes by stable revision/change IDs, and re-publish only authorized missing records without double-counting. |
-
-Android keystore-bound keys may be non-exportable and cannot be assumed recoverable on another phone. Decide and document which identity recovery secret can be backed up and how it is protected before implementing backup. A backup that omits private recovery authority is a data backup, not an identity-recovery promise. No support service, permanent server or cryptographic backdoor is assumed.
+Local erasure is explicit cryptographic/device-cache removal; it is not a cloud/account hard-erasure workflow. Historical server revisions remain unless the project administrator performs a separate deliberate erasure process. See the [privacy limits](ROLES_AND_PRIVACY.md#revocation-and-deletion).
