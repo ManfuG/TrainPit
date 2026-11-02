@@ -1,0 +1,28 @@
+# Local tooling and build output
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# Credentials and signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+keystore.properties
+*.pem
+*.key
+
+# Never commit client data or exchange bundles
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.trainpit
+*.trainpit-backup
+captures/

@@ -1,0 +1,29 @@
+name: Planned work
+description: Propose a focused change aligned with the roadmap.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Initialization is scaffolding and documentation only. Check docs/ROADMAP.md and docs/ISSUES.md before proposing implementation.
+        Do not include private client data, credentials, keys, or real exported bundles. Use synthetic scenarios.
+  - type: textarea
+    id: scope
+    attributes:
+      label: Goal and scope
+      description: Identify the roadmap phase, affected role, intended outcome, and explicit non-goals. Link an existing issue if applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use checkboxes for observable outcomes, including relevant offline, ownership, and privacy boundaries.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan
+      description: Explain how synthetic scenarios will demonstrate the criteria. Documentation changes may use a consistency review.
+    validations:
+      required: true

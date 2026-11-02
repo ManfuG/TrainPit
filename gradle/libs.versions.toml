@@ -1,0 +1,9 @@
+[versions]
+agp = "9.5.0"
+# Match AGP's built-in Kotlin compiler; Android modules need no Kotlin plugin.
+kotlin = "2.2.10"
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

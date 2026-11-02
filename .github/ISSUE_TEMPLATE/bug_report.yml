@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible problem with existing repository behavior.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository currently contains scaffolding and documentation only. Report existing behavior, not missing planned features.
+        Do not include private client data, credentials, keys, real exported bundles, or identifiable screenshots. Use synthetic examples. Report security concerns privately to maintainers.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the relevant command or workflow and a minimal synthetic example.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Include sanitized error output if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Commit, operating system, JDK or Android version, and relevant tool versions.
+    validations:
+      required: true
