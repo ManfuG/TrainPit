@@ -10,4 +10,5 @@
 - No mandatory central server. Start with explicit encrypted archive exchange; never synchronize live database files. Preserve ownership, causal revisions, replay safety, tombstones, scoped consent, and offline revocation limits.
 - Work from `docs/ROADMAP.md` and the linked GitHub issues in `docs/ISSUES.md`. Update existing documentation when behavior changes; do not duplicate plans.
 - Verification command: `./gradlew assembleDebug lintDebug :core:model:check`. There are no runtime behavior tests or launcher activity yet. Future feature work needs direct behavioral smoke verification.
+- CI must specify SDK packages explicitly. The Android setup action's default includes the removed `tools` package; install only `platforms;android-36` and `build-tools;36.0.0` for this skeleton.
 - Never commit private client records, exchange bundles, signing keys, local SDK paths, or credentials. Use synthetic fixtures only.
