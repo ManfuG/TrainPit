@@ -1,6 +1,7 @@
 # TrainPit agent context
 
 - Product/repository: TrainPit, `ManfuG/TrainPit`. This is a working Android application, not the old initialization-only scaffold. Keep code and repository text in English.
+- UI: Overview shows only today's assigned workout and the body-weight trend; tap the workout/exercises to enter actual results, use the adjacent + for today's weight. Weekly schedules stay in Plans. Keep empty states and Settings concise, the purple/red/orange light/dark palette, and sync/status controls out of the app header. Automatic sync remains unchanged; optional retry is in Settings. Preserve actionable consent and destructive-operation warnings.
 - Stack: Kotlin 2.4.21, AGP 9.5.0, Gradle 9.6.0, JVM 17, compile/target SDK 37, minSdk 26. Versions live in `gradle/libs.versions.toml`; Android CLI package name is `platforms;android-37.0`, with `build-tools;36.0.0`.
 - Four modules only: `app` composes `core:model`, `core:data`, and `core:sync`. Data/sync depend only on model; model is pure Kotlin/JVM. Use existing Compose/Material 3, ViewModel/StateFlow, Room/KSP, WorkManager, and Firebase patterns; no DI framework or extra modules without a demonstrated need.
 - Read `docs/DATA_MODEL.md`, `docs/ROLES_AND_PRIVACY.md`, `docs/SYNCHRONIZATION.md`, and `docs/FIREBASE.md` before changing persistence, authorization, archives, or transport.

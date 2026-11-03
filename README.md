@@ -1,23 +1,25 @@
 # TrainPit
 
-Offline-first Android application connecting personal trainers and their clients. Encrypted local storage is the working source of truth; authorized records synchronize through Firebase or encrypted files.
+Offline-first Android app for personal trainers and clients: weekly plans, workout logging and progress tracking. Native Kotlin/Jetpack Compose UI; encrypted local records synchronize through Firebase or encrypted files.
 
-Repository: [ManfuG/TrainPit](https://github.com/ManfuG/TrainPit).
+[![PitVerse](https://img.shields.io/badge/PitVerse-suite-75dbca)](https://giacomo-manfucci.pages.dev/pitverse/)
+[![Release](https://img.shields.io/github/v/release/ManfuG/TrainPit)](https://github.com/ManfuG/TrainPit/releases/latest)
 
 ## Status
 
-Native Android application, version **1.0.0**, minimum **Android 8.0**. Download the signed APK from [GitHub Releases](https://github.com/ManfuG/TrainPit/releases). If you installed the old repository-setup debug APK, uninstall it before installing the signed release.
+Native Android app **1.0.1** for **Android 8.0+**. **[Download the signed APK](https://github.com/ManfuG/TrainPit/releases/download/v1.0.1/TrainPit-1.0.1.apk)** · [Latest release](https://github.com/ManfuG/TrainPit/releases/latest) · [SHA-256 checksum](https://github.com/ManfuG/TrainPit/releases/download/v1.0.1/SHA256SUMS.txt). Updates retain the established signing key. If you installed the old repository-setup debug APK, uninstall it before installing the signed release.
 
 Create an account online and choose **Trainer** or **Client**. The role is fixed for that account. A phone PIN, password or pattern is required to unlock client information. Existing local plans and records remain available offline after sign-in.
 
 ## Features
 
-- **Personal Trainer (Admin):** connect with multiple clients, publish and update weekly plans, and review consented session results and progress. Admin is relationship-scoped, never global access.
-- **Client:** view assigned plans; record and correct sessions, actual set weights/repetitions, and body weight.
-- **Dashboard:** weekly schedules, session/set/repetition/external-load statistics, eight-week session charts, and body-weight trends.
-- **Local storage:** separate encrypted Room databases per account, durable offline changes, immutable history and explicit conflict resolution.
-- **Data portability:** encrypted complete-client-history or selected-session export; authenticated, previewed, atomic, duplicate-safe import.
-- **Privacy:** explicit client acceptance; separate body-weight consent; phone-credential unlock; protected windows; account-scoped sign-out and local erasure.
+- **Trainer:** connect with multiple clients, publish weekly plans, and review consented results. Access is limited to each approved relationship.
+- **Overview:** today's workout and a body-weight trend. Tap today's workout or an exercise to enter actual set weights and repetitions; use the body-weight add button to record a measurement.
+- **Plans and history:** weekly schedules in **Plans**; past records, corrections and conflict review in **History & stats**.
+- **Automatic sync:** changes stay available offline and synchronize when connected. An optional retry remains in **Settings**.
+- **Local storage:** separate encrypted Room databases per account, immutable history and explicit conflict resolution.
+- **Data portability:** encrypted full-client-history or selected-session export; previewed, atomic, duplicate-safe import.
+- **Privacy:** explicit client acceptance, separate body-weight consent, phone-credential unlock, protected windows, account-scoped sign-out and local erasure.
 
 To connect, the client copies their account UID from **Settings**. The trainer enters it under **Clients**; the client reviews the request under **Trainers** and accepts. Body weight stays private until its separate sharing switch is enabled.
 
@@ -32,7 +34,7 @@ To connect, the client copies their account UID from **Settings**. The trainer e
 | Persistence | Room 2.8.5/KSP; Android Keystore AES-256-GCM encrypted payloads and metadata |
 | Accounts/cloud | Firebase Authentication email/password and Firestore; billing disabled |
 | Exchange | kotlinx.serialization; ECDSA P-256 signed revisions; AES-256-GCM/PBKDF2 encrypted archives |
-| Background work | Network-constrained WorkManager; foreground, manual and post-edit synchronization |
+| Background work | Automatic foreground/post-edit sync and network-constrained WorkManager; optional Settings retry |
 
 Versions are pinned in `gradle/libs.versions.toml`. AGP supplies [built-in Android Kotlin support](https://developer.android.com/build/migrate-to-built-in-kotlin); no separate Android Kotlin plugin or dependency-injection framework is used.
 

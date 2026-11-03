@@ -37,7 +37,7 @@ Own collections are account-scoped. Clients query trainer plans by `kind == PLAN
 
 Firestore's persistent disk cache is disabled: only encrypted Room is durable on-device. Immutable revision contents are cached after validation; unchanged relationship/key responses do not rewrite/decrypt the entire local history. Query cursors and pending flags survive process restarts.
 
-Foreground checks run when unlocked/visible and approximately every minute; edits request a background-safe synchronization attempt, and **Sync** is an explicit retry/status action. Network-constrained WorkManager runs roughly hourly, starting after an initial hour rather than duplicating launch synchronization. Android scheduling, connectivity and free quotas can delay delivery. This is eventual synchronization, not a real-time or always-complete remote view: initial/reseed pulls may show partial history until the current sync finishes.
+Synchronization is automatic. Foreground checks run when unlocked/visible and approximately every minute; edits request a background-safe synchronization attempt. **Settings** retains an optional manual sync/retry action. Network-constrained WorkManager runs roughly hourly, starting after an initial hour rather than duplicating launch synchronization. Android scheduling, connectivity and free quotas can delay delivery. This is eventual synchronization, not a real-time or always-complete remote view: initial/reseed pulls may show partial history until the current sync finishes.
 
 ## Encrypted file format
 

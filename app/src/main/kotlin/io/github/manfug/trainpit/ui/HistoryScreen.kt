@@ -31,7 +31,7 @@ internal fun HistoryScreen(profile: Profile, state: LocalState, heads: Map<Strin
     }
     val selectedRoots = remember(selected, heads, subject) { selected.filterTo(HashSet()) { root -> heads[root]?.singleOrNull()?.let { !it.deleted && it.kind == EntryKind.SESSION && it.subjectId == subject } == true } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { SectionTitle("History & conflicts", "Only record owners can edit, delete or resolve conflicting revisions. Trainer monitoring of client sessions is read-only.") }
+        item { SectionTitle("History & stats") }
         item { SubjectSelector(profile, state.relationships, subject, selectSubject, includeEnded = true) }
         item {
             Choice("Records", kind?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "All", listOf("All", "Plans", "Sessions", "Body weight")) { kind = when (it) { 1 -> EntryKind.PLAN; 2 -> EntryKind.SESSION; 3 -> EntryKind.WEIGHT; else -> null } }
@@ -48,7 +48,7 @@ internal fun HistoryScreen(profile: Profile, state: LocalState, heads: Map<Strin
                 TextButton(onClick = { selected = emptySet() }) { Text("Clear selection") }
             }
         }
-        if (groups.isEmpty()) item { EmptyState("No records to show", "Choose a client or record type, sync, or record your first session. Conflicted records appear here for explicit review.") }
+        if (groups.isEmpty()) item { InfoCard("No records to show") {} }
         items(groups, key = { it.first().rootId }) { branches ->
             val entry = branches.first()
             InfoCard(if (branches.size > 1) "Conflict · ${recordTitle(entry)}" else recordTitle(entry)) {

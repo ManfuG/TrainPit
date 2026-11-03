@@ -81,4 +81,14 @@ Verified on 2026-11-02:
 
 The synthetic dashboard scenario produced two sessions, three completed sets, 25 repetitions and 1300 kg × reps. Selected-session export contained one session and two historical plan revisions, no body-weight records; duplicate import added nothing. The offline full-history roundtrip contained five signed revisions across four records and left its one pending cloud revision pending.
 
+### Version 1.0.1 UI verification — 2026-11-03
+
+- API 36 native app with the local Firebase emulators: Overview selected only today's workout, excluding another day and an older week. Tapping an exercise opened actual-result entry; a saved squat retained 7 reps at 57.5 kg and its original plan revision.
+- The adjacent body-weight + saved today's measurement. An offline measurement survived process restart and uploaded on the automatic foreground cadence after reconnect, without pressing Sync.
+- Inspected Plans, Trainers, History & stats, concise Settings and all requested empty states. Light/dark palettes and 1.3× system font were checked on the native surface; consent/destructive dialogs remain.
+- Debug and signed release builds, Android lint and 17 JVM checks passed (unchanged JVM suites reused Gradle's cached results). All three existing app account/cloud Android tests passed on API 36.
+- The signed, non-debuggable 1.0.1 APK installed over signed 1.0.0 and opened its sign-in screen on API 36; the certificate fingerprint is unchanged. Authenticated changed-flow checks used the debug/emulator backend, not production. No production fixtures were created.
+
+This UI refresh did not repeat API 26, physical-phone, production-backend or archive-picker verification; the preceding 1.0.0 results remain historical evidence, not new coverage.
+
 These checks do not constitute a physical-phone or independent security audit. API 26 and 36 were exercised; API 37 and intermediate API levels were not individually run. Hardware-backed key protection depends on the actual phone. CI runs build/lint/JVM and Firestore-rule checks; connected Android and native file-picker checks require an emulator/device.

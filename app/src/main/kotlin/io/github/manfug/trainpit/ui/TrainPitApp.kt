@@ -147,9 +147,7 @@ private fun SignedInApp(controller: TrainPitController, profile: Profile, state:
                         Text("TrainPit", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                         Text(profile.displayName, style = MaterialTheme.typography.bodySmall)
                     }
-                    TextButton(onClick = controller::sync, enabled = !busy) { Text(if (busy) "Working…" else "Sync") }
                 }
-                Text(syncLabel + " · ${state.pendingCount} pending", Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
                 if (conflictCount > 0) TextButton(onClick = { selectedClient = heads.values.firstOrNull { it.size > 1 }?.firstOrNull()?.subjectId; destination = Destination.HISTORY }) { Text("$conflictCount unresolved record conflict(s) · Review") }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth()) else HorizontalDivider()
             }
@@ -167,7 +165,7 @@ private fun SignedInApp(controller: TrainPitController, profile: Profile, state:
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             Box(Modifier.widthIn(max = 1000.dp).fillMaxSize()) {
                 when (destination) {
-                    Destination.OVERVIEW -> DashboardScreen(profile, state, records, subject, { selectedClient = it }, { editing.editor = Editor.Session() }, { editing.editor = Editor.Weight() }, startSession, newPlan)
+                    Destination.OVERVIEW -> DashboardScreen(profile, state, records, subject, { selectedClient = it }, { editing.editor = Editor.Weight() }, startSession)
                     Destination.PLANS -> PlansScreen(profile, state, records, subject, { selectedClient = it }, edit, newPlan, startSession)
                     Destination.CONNECTIONS -> ConnectionsScreen(profile, state, controller, busy, { selectedClient = it; destination = Destination.OVERVIEW }, newPlan)
                     Destination.HISTORY -> HistoryScreen(profile, state, heads, subject, { selectedClient = it }, controller, busy, edit, { id, roots -> archive = ArchiveRequest.Export(id, roots) })

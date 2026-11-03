@@ -79,28 +79,27 @@ internal fun ConnectionsScreen(profile: Profile, state: LocalState, controller: 
     var rejecting by remember { mutableStateOf<Relationship?>(null) }
     val connections = remember(state.relationships, profile.uid) { state.relationships.filter { it.includes(profile.uid) }.sortedBy { it.otherName(profile.uid).lowercase() } }
     ScrollPage {
-        SectionTitle(if (profile.role == Role.TRAINER) "Your clients" else "Your trainers", "Connections require the client's explicit consent. Ending a connection stops future access, but cannot recall copies already received.")
+        SectionTitle(if (profile.role == Role.TRAINER) "Your clients" else "Your trainers")
         if (profile.role == Role.TRAINER) InfoCard("Invite a client") {
-            Input(clientId, { clientId = it }, "Client account UID", help = "Ask the client to copy their account UID from Settings.")
+            Input(clientId, { clientId = it }, "Client account UID")
             ErrorText(error)
             Button(onClick = {
                 error = if (clientId.trim().isBlank() || clientId.trim().length > 128 || clientId.trim() == profile.uid) "Enter another client's valid account UID." else null
                 if (error == null) controller.requestClient(clientId.trim())
             }, enabled = !busy) { Text("Send connection request") }
         }
-        if (connections.isEmpty()) EmptyState("No connections yet", if (profile.role == Role.CLIENT) "Copy your account UID in Settings and give it to your trainer. Requests will appear here after sync." else "Invite clients using their exact account UID. You can manage multiple clients independently.")
+        if (connections.isEmpty()) InfoCard(if (profile.role == Role.CLIENT) "No trainer yet" else "No clients yet") {}
         connections.forEach { relationship ->
             InfoCard(relationship.otherName(profile.uid)) {
                 Text("Account UID: ${relationship.otherId(profile.uid)}", style = MaterialTheme.typography.bodySmall)
                 Text(when (relationship.status) { RelationshipStatus.PENDING -> "Awaiting client consent"; RelationshipStatus.ACTIVE -> "Connected"; RelationshipStatus.ENDED -> "Connection ended" }, color = MaterialTheme.colorScheme.primary)
                 if (relationship.status == RelationshipStatus.PENDING) {
                     if (profile.role == Role.CLIENT) {
-                        Text("Accepting gives this trainer access to your training-session history and future sessions while connected. Body weight is not shared unless you opt in separately.")
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Button(onClick = { accepting = relationship }, enabled = !busy) { Text("Review & accept") }
                             OutlinedButton(onClick = { rejecting = relationship }, enabled = !busy) { Text("Decline") }
                         }
-                    } else Text("The client must accept before you can assign plans or view their records.")
+                    }
                 }
                 if (relationship.status == RelationshipStatus.ACTIVE) {
                     if (profile.role == Role.CLIENT) {
@@ -108,9 +107,8 @@ internal fun ConnectionsScreen(profile: Profile, state: LocalState, controller: 
                             Text("Share body-weight history", Modifier.weight(1f).padding(end = 12.dp), style = MaterialTheme.typography.bodyLarge)
                             Switch(relationship.shareBodyWeight, onCheckedChange = { enabled -> if (enabled) sharing = relationship else controller.setWeightSharing(relationship.id, false) }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Share body-weight history with ${relationship.trainerName}" })
                         }
-                        Text(if (relationship.shareBodyWeight) "This trainer can currently read your body-weight records." else "Your body weight is not shared with this trainer.", style = MaterialTheme.typography.bodySmall)
                     } else {
-                        Text(if (relationship.shareBodyWeight) "Client consent includes body weight." else "Training sessions only. Body weight is private.")
+                        Text(if (relationship.shareBodyWeight) "Body weight shared" else "Body weight private", style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { openClient(relationship.clientId) }) { Text("Open client") }
                             OutlinedButton(onClick = { newPlan(relationship.clientId) }, enabled = !busy) { Text("Create plan") }
@@ -118,7 +116,6 @@ internal fun ConnectionsScreen(profile: Profile, state: LocalState, controller: 
                     }
                     TextButton(onClick = { ending = relationship }, enabled = !busy) { Text("End connection") }
                 }
-                if (relationship.status == RelationshipStatus.ENDED) Text("Historical copies may remain on devices. No ongoing access is granted.", style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -140,26 +137,20 @@ internal fun SettingsScreen(profile: Profile, state: LocalState, syncLabel: Stri
             Text("Account UID", style = MaterialTheme.typography.labelMedium)
             Text(profile.uid, style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("TrainPit account UID", profile.uid))); copied = true } }) { Text(if (copied) "UID copied" else "Copy account UID") }
-            Text("Share this UID, not your password, to connect with a trainer or client.", style = MaterialTheme.typography.bodySmall)
         }
         InfoCard("Sync") {
             Text(syncLabel)
-            Text("${state.pendingCount} revision(s) waiting to upload")
-            Button(onClick = controller::sync, enabled = !busy) { Text("Sync / retry now") }
-            Text("Signed revisions are queued locally while offline. Conflicts are never silently overwritten; review them in History.", style = MaterialTheme.typography.bodySmall)
+            Text("${state.pendingCount} pending upload(s)")
+            Button(onClick = controller::sync, enabled = !busy) { Text("Sync now") }
         }
         InfoCard("Encrypted archives") {
-            Text("Files use password-protected authenticated encryption. Use at least 12 characters and share the password separately. Import checks account authorization and trusted signing keys before applying records.")
             if (profile.role == Role.CLIENT) OutlinedButton(onClick = { export(profile.uid) }, enabled = !busy) { Text("Export full client history") }
             else state.activeRelationships.filter { it.trainerId == profile.uid }.forEach { relationship ->
                 OutlinedButton(onClick = { export(relationship.clientId) }, enabled = !busy) { Text("Export ${relationship.clientName}'s history") }
             }
             OutlinedButton(onClick = onImport, enabled = !busy) { Text("Import encrypted archive") }
-            Text("Select individual sessions in History for a smaller export. Full history includes authorized revisions and deletion evidence; exports never acknowledge cloud uploads.", style = MaterialTheme.typography.bodySmall)
         }
         InfoCard("Privacy & local storage") {
-            Text("Sensitive local records are encrypted using Android Keystore. Cloud records use Firebase TLS and managed encryption, not end-to-end encryption. Device credentials and secure-window protection guard the open app.")
-            Text("Removing access cannot erase copies previously received by another device or exported by another person.", style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = { confirm = "signout" }, enabled = !busy) { Text("Sign out") }
             OutlinedButton(onClick = { confirm = "local" }, enabled = !busy) { Text("Erase this account's local data") }
             TextButton(onClick = { confirm = "records" }, enabled = !busy) { Text("Delete all records I own") }

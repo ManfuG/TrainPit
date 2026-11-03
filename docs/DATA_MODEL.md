@@ -51,4 +51,4 @@ Room has no destructive migration fallback. Future schema changes require explic
 
 ## Derived information
 
-Dashboards compute schedules, current-week sessions/sets/repetitions, external-load volume (`kg × reps`), eight-week session counts and the latest 20 body-weight points from authorized, non-deleted, non-conflicted heads. Empty histories display empty states/zero recorded totals. Charts are not synchronized or stored as authoritative health facts.
+Overview selects the current calendar day's workout from the current Monday-based weekly plans, and the latest 20 body-weight points from authorized, non-deleted, non-conflicted heads. Omitted training days show a rest-day empty state. Full weekly schedules stay in Plans; History & stats lists retained records and explicit conflicts. Derived views are not synchronized or stored as authoritative health facts.

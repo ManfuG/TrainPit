@@ -6,18 +6,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.manfug.trainpit.model.*
+import kotlinx.coroutines.delay
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-
-private data class WeekSummary(val sessions: List<Entry>, val sets: Int, val repetitions: Long, val volumeGrams: Long, val chart: List<Pair<LocalDate, Int>>, val weights: List<BodyWeight>)
-private val ChartDateFormat = DateTimeFormatter.ofPattern("MM-dd")
 
 @Composable
 internal fun SubjectSelector(profile: Profile, relationships: List<Relationship>, selected: String?, onSelect: (String) -> Unit, includeEnded: Boolean = false) {
@@ -29,79 +26,63 @@ internal fun SubjectSelector(profile: Profile, relationships: List<Relationship>
 }
 
 @Composable
-internal fun DashboardScreen(profile: Profile, state: LocalState, records: List<Entry>, subject: String?, selectSubject: (String) -> Unit, newSession: () -> Unit, newWeight: () -> Unit, startSession: (Entry, Int) -> Unit, newPlan: (String) -> Unit) {
-    var week by remember(subject) { mutableStateOf(monday()) }
-    val summary = remember(records, subject, week) {
-        val sessions = records.filter { it.subjectId == subject && it.session != null }
-        val from = week.toString(); val until = week.plusDays(7).toString()
-        val current = sessions.filter { val date = requireNotNull(it.session).date; date >= from && date < until }
-        val sets = current.flatMap { it.session!!.sets }
-        WeekSummary(current, sets.size, sets.sumOf { it.repetitions.toLong() }, sets.sumOf { it.loadGrams * it.repetitions },
-            (7 downTo 0).map { offset ->
-                val start = week.minusWeeks(offset.toLong()); val end = start.plusWeeks(1).toString()
-                val startDate = start.toString()
-                start to sessions.count { val date = requireNotNull(it.session).date; date >= startDate && date < end }
-            }, records.filter { it.subjectId == subject && it.weight != null }.mapNotNull { it.weight }.sortedBy { it.date }.takeLast(20))
+internal fun DashboardScreen(profile: Profile, state: LocalState, records: List<Entry>, subject: String?, selectSubject: (String) -> Unit, newWeight: () -> Unit, startSession: (Entry, Int) -> Unit) {
+    var today by remember { mutableStateOf(LocalDate.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            today = LocalDate.now()
+        }
     }
-    val plans = remember(records, subject, week) { records.filter { it.subjectId == subject && it.plan?.weekStart == week.toString() } }
+    val plans = remember(records, subject, today) {
+        val week = monday(today).toString()
+        records.filter { entry ->
+            val plan = entry.plan
+            entry.subjectId == subject && plan?.weekStart == week && plan.days.any { it.dayOfWeek == today.dayOfWeek.value }
+        }
+    }
+    val weights = remember(records, subject) {
+        records.mapNotNull { if (it.subjectId == subject) it.weight else null }.sortedBy { it.date }.takeLast(20)
+    }
     val weightAllowed = profile.role == Role.CLIENT || state.activeRelationships.any { it.clientId == subject && it.trainerId == profile.uid && it.shareBodyWeight }
     ScrollPage {
-        SectionTitle(if (profile.role == Role.CLIENT) "Your training" else "Client overview", if (profile.role == Role.TRAINER) "Client results are read-only. Only your own plans can be edited." else null)
+        SectionTitle(if (profile.role == Role.CLIENT) "Your training" else "Client overview")
         SubjectSelector(profile, state.relationships, subject, selectSubject)
         if (profile.role == Role.TRAINER && subject == null) {
-            EmptyState("Choose or connect a client", "Use Connections to invite clients by account UID. After they accept, their permitted records will appear here.")
+            Text("No client selected")
         } else {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                OutlinedButton(onClick = { week = week.minusWeeks(1) }) { Text("Previous") }
-                TextButton(onClick = { week = monday() }) { Text("This week") }
-                OutlinedButton(onClick = { week = week.plusWeeks(1) }) { Text("Next") }
-            }
-            Text("Week of $week", style = MaterialTheme.typography.titleLarge)
-            InfoCard("Recorded this week") {
-                Text("Sessions: ${summary.sessions.size} · Sets: ${summary.sets}", style = MaterialTheme.typography.titleMedium)
-                Text("Reps: ${summary.repetitions} · Volume: ${formatKilograms(summary.volumeGrams)} kg × reps")
-                Text("Volume = external kg × completed reps; body-weight-only sets contribute 0 kg.", style = MaterialTheme.typography.bodySmall)
-            }
-            if (profile.role == Role.CLIENT) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(onClick = newSession) { Text("Log session") }
-                    OutlinedButton(onClick = newWeight) { Text("Body weight") }
+            if (plans.isEmpty()) Text("No workout today")
+            plans.forEach { entry ->
+                val plan = requireNotNull(entry.plan)
+                val day = plan.days.first { it.dayOfWeek == today.dayOfWeek.value }
+                OutlinedCard(
+                    onClick = { startSession(entry, day.dayOfWeek) },
+                    enabled = profile.role == Role.CLIENT && entry.subjectId == profile.uid,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(plan.title, style = MaterialTheme.typography.titleMedium)
+                        Text("${dayName(day.dayOfWeek)} · $today", color = MaterialTheme.colorScheme.primary)
+                        day.exercises.forEach { exercise ->
+                            HorizontalDivider()
+                            Text(exercise.name, style = MaterialTheme.typography.titleSmall)
+                            Text("${exercise.sets} × ${exercise.repetitions} reps" + (exercise.loadGrams?.let { " · ${formatKilograms(it)} kg" } ?: ""), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
-            } else if (subject != null && state.activeRelationships.any { it.clientId == subject && it.trainerId == profile.uid }) Button(onClick = { newPlan(subject) }) { Text("Create weekly plan") }
-            SectionTitle("Weekly schedule")
-            if (plans.isEmpty()) EmptyState("No plan for this week", if (profile.role == Role.CLIENT) "Your trainer's assigned plans appear after sync. You can still log a session independently." else "Create a weekly plan for this client. Weeks always start on Monday.")
-            plans.forEach { entry -> PlanCard(entry, profile, startSession = startSession) }
-            InfoCard("Sessions per week") {
-                Text("Eight weeks ending with the selected week. Only saved, non-conflicted sessions are counted.", style = MaterialTheme.typography.bodySmall)
-                WeeklyBars(summary.chart)
             }
-            if (weightAllowed) InfoCard("Body-weight trend") {
-                if (summary.weights.isEmpty()) Text("No body-weight measurements recorded.")
-                else WeightChart(summary.weights)
-            } else InfoCard("Body-weight privacy") { Text("This client has not granted access to body-weight history.") }
+            if (weightAllowed) OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Body-weight trend", style = MaterialTheme.typography.titleMedium)
+                        if (profile.role == Role.CLIENT) IconButton(onClick = newWeight, modifier = Modifier.semantics { contentDescription = "Add today's body weight" }) {
+                            Text("+", style = MaterialTheme.typography.headlineSmall)
+                        }
+                    }
+                    if (weights.isEmpty()) Text("No measurements yet") else WeightChart(weights)
+                }
+            }
         }
-    }
-}
-
-@Composable
-private fun WeeklyBars(values: List<Pair<LocalDate, Int>>) {
-    val color = MaterialTheme.colorScheme.primary
-    val baseline = MaterialTheme.colorScheme.outlineVariant
-    val max = remember(values) { (values.maxOfOrNull { it.second } ?: 0).coerceAtLeast(1) }
-    val description = remember(values) { values.joinToString("; ") { "Week of ${it.first}: ${it.second} sessions" } }
-    Canvas(Modifier.fillMaxWidth().height(144.dp).semantics { contentDescription = description }) {
-        val cell = size.width / values.size.coerceAtLeast(1)
-        drawLine(baseline, Offset(0f, size.height), Offset(size.width, size.height), 2f)
-        values.forEachIndexed { index, pair ->
-            val height = (size.height - 12.dp.toPx()) * pair.second / max
-            if (height > 0) drawLine(color, Offset(cell * (index + 0.5f), size.height), Offset(cell * (index + 0.5f), size.height - height), cell * 0.52f, StrokeCap.Butt)
-        }
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        values.forEach { (date, count) -> Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-            Text(date.format(ChartDateFormat), style = MaterialTheme.typography.labelSmall)
-            Text(count.toString(), style = MaterialTheme.typography.labelMedium)
-        } }
     }
 }
 
@@ -131,17 +112,16 @@ private fun WeightChart(weights: List<BodyWeight>) {
     }
     Text("${weights.first().date} → ${weights.last().date}", style = MaterialTheme.typography.labelMedium)
     Text("Range ${formatKilograms(low)}–${formatKilograms(high)} kg · latest ${formatKilograms(weights.last().grams)} kg", style = MaterialTheme.typography.bodyMedium)
-    Text("Most recent ${weights.size} measurements. Points use their actual calendar dates.", style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
 internal fun PlansScreen(profile: Profile, state: LocalState, records: List<Entry>, subject: String?, selectSubject: (String) -> Unit, edit: (Entry) -> Unit, newPlan: (String) -> Unit, startSession: (Entry, Int) -> Unit) {
     val plans = remember(records, subject) { records.filter { it.plan != null && it.subjectId == subject }.sortedByDescending { it.plan!!.weekStart } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { SectionTitle("Weekly plans", "A plan update is a new signed revision; session references remain tied to the version used.") }
+        item { SectionTitle("Weekly plans") }
         item { SubjectSelector(profile, state.relationships, subject, selectSubject, includeEnded = true) }
         if (profile.role == Role.TRAINER && subject != null && state.activeRelationships.any { it.clientId == subject && it.trainerId == profile.uid }) item { Button(onClick = { newPlan(subject) }) { Text("Create weekly plan") } }
-        if (plans.isEmpty()) item { EmptyState("No assigned plans", if (profile.role == Role.CLIENT) "Connect with a trainer and sync to receive your weekly schedule." else "Choose an active client, then create a weekly plan.") }
+        if (plans.isEmpty()) item { Text("No assigned plans") }
         items(plans, key = { it.id }) { entry -> PlanCard(entry, profile, edit = if (entry.ownerId == profile.uid && state.activeRelationships.any { it.clientId == entry.subjectId && it.trainerId == profile.uid }) ({ edit(entry) }) else null, startSession = startSession) }
     }
 }

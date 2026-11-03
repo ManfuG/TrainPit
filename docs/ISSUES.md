@@ -50,10 +50,10 @@ Tracking: [#5](https://github.com/ManfuG/TrainPit/issues/5).
 
 Tracking: [#6](https://github.com/ManfuG/TrainPit/issues/6).
 
-- [x] Show weekly schedules, session/set/repetition totals, external-load volume and progress charts.
+- [x] Deliver weekly schedules and progress views. Version 1.0.1 simplifies Overview to today's workout and the body-weight trend; weekly schedules stay in Plans and record review stays in History & stats.
 - [x] Restrict trainer summaries to selected authorized client records.
 - [x] Define periods, units, missing-data and conflict behavior in DATA_MODEL.md.
-- [x] Verify synthetic totals: two sessions, three completed sets, 25 repetitions and 1300 kg × reps; verify empty-client isolation.
+- [x] Verify v1.0.0 synthetic totals: two sessions, three completed sets, 25 repetitions and 1300 kg × reps; verify empty-client isolation.
 
 ## Implement Firebase synchronization and encrypted history import/export
 

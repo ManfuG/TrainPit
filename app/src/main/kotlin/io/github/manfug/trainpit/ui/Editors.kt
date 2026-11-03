@@ -33,7 +33,7 @@ private fun EditorFrame(title: String, dirty: Boolean, saving: Boolean, onClose:
                 }
                 CompositionLocalProvider(LocalInputEnabled provides !saving) {
                     ScrollPage {
-                        SectionTitle(title, "Dates use YYYY-MM-DD. Weights are in kilograms.")
+                        SectionTitle(title)
                         content()
                     }
                 }
@@ -75,8 +75,7 @@ internal fun PlanEditor(editor: Editor.Plan, draft: PlanDraft, saving: Boolean, 
         } catch (e: IllegalArgumentException) { error = e.message ?: "Check the plan fields." }
     }) {
         Input(title, { title = it }, "Plan title")
-        Input(week, { week = it }, "Week starts (Monday)", help = "Choose the Monday of this plan's week.")
-        Text("A saved update creates a signed revision. Existing completed sessions keep their original plan reference.", style = MaterialTheme.typography.bodySmall)
+        Input(week, { week = it }, "Week starts (Monday, YYYY-MM-DD)")
         rows.forEachIndexed { index, row ->
             key(row.id) {
                 InfoCard("Exercise ${index + 1}") {
@@ -141,8 +140,7 @@ internal fun SessionEditor(editor: Editor.Session, draft: SessionDraft, saving: 
             } catch (e: IllegalArgumentException) { error = e.message ?: "Check the session fields." }
         }) {
         Input(title, { title = it }, "Session title")
-        Input(date, { date = it }, "Training date")
-        Text("Record only completed sets, up to 400 per session. Planned exercises start with one blank set each: add the sets you completed and remove skipped ones. Actual reps and load are never assumed.", style = MaterialTheme.typography.bodyMedium)
+        Input(date, { date = it }, "Training date (YYYY-MM-DD)")
         rows.forEachIndexed { index, row ->
             key(row.id) {
                 InfoCard("Completed set ${index + 1}") {
@@ -153,7 +151,7 @@ internal fun SessionEditor(editor: Editor.Session, draft: SessionDraft, saving: 
                         Input(row.reps, { update(row.copy(reps = it)) }, "Actual reps", Modifier.weight(1f), numeric = true)
                         Input(row.kg, { update(row.copy(kg = it)) }, "Actual kg", Modifier.weight(1f), numeric = true)
                     }
-                    OutlinedButton(onClick = { rows = rows + SetDraft(name = row.name, prescriptionId = row.prescriptionId, target = row.target) }, enabled = rows.size < 400 && !saving) { Text("Add another set of this exercise") }
+                    OutlinedButton(onClick = { rows = rows + SetDraft(name = row.name, prescriptionId = row.prescriptionId, target = row.target) }, enabled = rows.size < 400 && !saving) { Text("Add set") }
                     TextButton(onClick = { removing = row.id }, enabled = !saving) { Text("Remove set") }
                 }
             }
@@ -173,9 +171,8 @@ internal fun WeightEditor(editor: Editor.Weight, draft: WeightDraft, saving: Boo
         try { val value = BodyWeight(requireDate(date), parseKilograms(kg)); error = null; onSave(value, editor.entry?.rootId) }
         catch (e: IllegalArgumentException) { error = e.message ?: "Check the date and body weight." }
     }) {
-        Input(date, { date = it }, "Measurement date")
+        Input(date, { date = it }, "Measurement date (YYYY-MM-DD)")
         Input(kg, { kg = it }, "Body weight (kg)", numeric = true)
-        Text("Cloud trainer access requires an active connection and your separate body-weight consent.")
         ErrorText(error)
     }
 }

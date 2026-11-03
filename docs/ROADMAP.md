@@ -16,11 +16,11 @@ Implemented trainer-authored weekly schedules, exercises and targets, assignment
 
 ## 4. Logging and body metrics
 
-Implemented client-owned sessions, actual completed sets, weights/repetitions, body-weight measurements, corrections and logical deletions. Integer grams are the storage unit; actual results are never prefilled from prescribed targets.
+Implemented client-owned sessions, actual completed sets, weights/repetitions, body-weight measurements, corrections and logical deletions. From Overview, tapping today's workout or an exercise opens the session editor for today's exercises; the body-weight add button records a measurement. Integer grams are the storage unit; actual results are never prefilled from prescribed targets.
 
 ## 5. Dashboards, charts, and statistics
 
-Implemented weekly schedules, session/set/repetition totals, external-load volume, body-weight and progress charts. Trainer views are read-only and restricted to active clients, with separate body-weight consent. Empty or incomplete histories do not invent measurements.
+Overview focuses on today's workout and the body-weight trend; weekly schedules stay in Plans. History & stats contains past records, corrections and conflict review. Trainer views are read-only and restricted to authorized clients, with separate body-weight consent. Empty or incomplete histories do not invent measurements.
 
 ## 6. Synchronization and history import/export
 
