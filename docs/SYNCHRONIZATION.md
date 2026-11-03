@@ -21,6 +21,8 @@ Published plan updates create descendants. Session records retain the exact perf
 
 Different devices may edit the same root concurrently. Complete same-root parent ancestry identifies descendants; wall-clock timestamps, device priority and arrival order never choose a winner. Multiple heads remain visible as conflicts, excluded from ordinary statistics. Only the owner publishes a resolution naming every head; more than 100 heads are resolved through an atomic bounded chain.
 
+Plans have one logical slot per trainer/client/week; body weights have one per client/date. Independent legacy/offline roots in the same slot remain an explicit conflict. Schema-2 `slotParents` records an owner's cross-root choice without changing schema-1 signing bytes or rewriting prior facts. These references are signed, validated, fetched and archived as causal dependencies; only exact witnessed heads are superseded, so a later competing descendant reopens the conflict. All participating apps must understand schema 2 before exchanging these resolutions.
+
 ## Cloud synchronization
 
 `FirebaseGateway.synchronize` is single-flight across foreground/background adapters in the process. The sequence is:
@@ -28,16 +30,20 @@ Different devices may edit the same root concurrently. Complete same-root parent
 1. Verify the active Firebase UID matches the local repository and register/validate its device key.
 2. Fetch current relationships. Purge unauthorized foreign records when consent ends or body-weight scope is removed. Scope changes clear receive cursors so renewed grants reseed rather than skip previously hidden categories.
 3. Cache authenticated signing keys for the account and active peers. Known revoked keys cannot be silently reactivated or replaced.
-4. Scan the indexed pending outbox in pages of 100. Group transactions by author device and client, keeping Firestore rule-access counts bounded. Read existing revision IDs before writes: matching signed payload means an already committed retry; different contents are a collision. New documents receive authoritative `serverAt` timestamps and cannot be updated/deleted by client rules.
-5. Mark those exact local revision IDs uploaded only after the server transaction succeeds. File creation, a queued SDK write or another person's receipt is never treated as a cloud acknowledgement. Trainer plan updates for ended relationships stay local/blocked rather than preventing other clients' updates.
-6. Pull own history and each currently authorized peer/category in pages of at most 200, ordered by `serverAt` and document ID. The cursor includes timestamp seconds/nanoseconds plus ID, so equal timestamps do not skip records.
-7. Match decoded payload to its cloud envelope, validate original owner/device signatures, and fetch missing same-owner parents through an iterative bounded dependency walk. Apply valid revisions and the next source cursor in one Room transaction. Failure rolls back that page and leaves the cursor unchanged.
+4. Pull the account's own history before upload so other-device slot choices and deletions are known. Validate and commit each page/cursor atomically. For trainers, carry the latest unambiguous prior plan into the current week for active clients; unchanged local history/week skips repeated derivation.
+5. Scan the indexed pending outbox in pages of 100. Group transactions by author device and client, keeping Firestore rule-access counts bounded. Read existing revision IDs before writes: matching signed payload means an already committed retry; different contents are a collision. New documents receive authoritative `serverAt` timestamps and cannot be updated/deleted by client rules.
+6. Mark those exact local revision IDs uploaded only after the server transaction succeeds. File creation, a queued SDK write or another person's receipt is never treated as a cloud acknowledgement. Trainer plan updates for ended relationships stay local/blocked rather than preventing other clients' updates.
+7. Pull currently authorized peer/categories in pages of at most 200, ordered by `serverAt` and document ID. Cursors include timestamp seconds/nanoseconds plus ID, so equal timestamps do not skip records.
+
+Every pull matches decoded payloads to their cloud envelopes, validates original owner/device signatures, and fetches missing same-root `parents` and signed cross-root `slotParents` through an iterative bounded dependency walk. Valid revisions and each source cursor commit together; failures leave that page/cursor unchanged.
 
 Own collections are account-scoped. Clients query trainer plans by `kind == PLAN` and their own subject UID. Trainers query the client's SESSION category and, only with consent, WEIGHT. Firestore rules are not filters; broader foreign queries are denied. Composite indexes support these exact queries.
 
 Firestore's persistent disk cache is disabled: only encrypted Room is durable on-device. Immutable revision contents are cached after validation; unchanged relationship/key responses do not rewrite/decrypt the entire local history. Query cursors and pending flags survive process restarts.
 
 Synchronization is automatic. Foreground checks run when unlocked/visible and approximately every minute; edits request a background-safe synchronization attempt. **Settings** retains an optional manual sync/retry action. Network-constrained WorkManager runs roughly hourly, starting after an initial hour rather than duplicating launch synchronization. Android scheduling, connectivity and free quotas can delay delivery. This is eventual synchronization, not a real-time or always-complete remote view: initial/reseed pulls may show partial history until the current sync finishes.
+
+Trainer foreground rollover also runs before the network check, so it works offline; gateway/worker synchronization publishes newly carried copies in the same pass. Explicitly deleted or conflicted slots never auto-repeat. Clients can display the inherited prior schedule for the current week until the trainer publishes its copy, retaining the original signed plan reference rather than inventing trainer-authored data.
 
 ## Encrypted file format
 

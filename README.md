@@ -7,21 +7,24 @@ Offline-first Android app for personal trainers and clients: weekly plans, worko
 
 ## Status
 
-Native Android app **1.0.1** for **Android 8.0+**. **[Download the signed APK](https://github.com/ManfuG/TrainPit/releases/download/v1.0.1/TrainPit-1.0.1.apk)** · [Latest release](https://github.com/ManfuG/TrainPit/releases/latest) · [SHA-256 checksum](https://github.com/ManfuG/TrainPit/releases/download/v1.0.1/SHA256SUMS.txt). Updates retain the established signing key. If you installed the old repository-setup debug APK, uninstall it before installing the signed release.
+Native Android app **1.1.0** for **Android 8.0+**. **[Download the signed APK](https://github.com/ManfuG/TrainPit/releases/download/v1.1.0/TrainPit-1.1.0.apk)** · [Latest release](https://github.com/ManfuG/TrainPit/releases/latest) · [SHA-256 checksum](https://github.com/ManfuG/TrainPit/releases/download/v1.1.0/SHA256SUMS.txt). Updates retain the established signing key. If you installed the old repository-setup debug APK, uninstall it before installing the signed release.
 
 Create an account online and choose **Trainer** or **Client**. The role is fixed for that account. A phone PIN, password or pattern is required to unlock client information. Existing local plans and records remain available offline after sign-in.
 
 ## Features
 
-- **Trainer:** connect with multiple clients, publish weekly plans, and review consented results. Access is limited to each approved relationship.
-- **Overview:** today's workout and a body-weight trend. Tap today's workout or an exercise to enter actual set weights and repetitions; use the body-weight add button to record a measurement.
-- **Plans and history:** weekly schedules in **Plans**; past records, corrections and conflict review in **History & stats**.
+- **Trainer:** one weekly plan per client, carried forward automatically and editable for the new week. Weekly plans shows the current schedule only; access stays limited to approved relationships.
+- **Overview:** today's workout and an interactive body-weight trend. Record kg/reps in compact exercise rows; **Add set** copies the last row explicitly. Tap chart points for dates and values.
+- **History & stats:** distinct plan/session/body-weight colors, weekday dates, concise review and correction history. Session details chart each exercise's daily maximum load and total repetitions.
+- **Daily body weight:** recording again on the same date corrects that day's record instead of adding another measurement.
 - **Automatic sync:** changes stay available offline and synchronize when connected. An optional retry remains in **Settings**.
 - **Local storage:** separate encrypted Room databases per account, immutable history and explicit conflict resolution.
 - **Data portability:** encrypted full-client-history or selected-session export; previewed, atomic, duplicate-safe import.
 - **Privacy:** explicit client acceptance, separate body-weight consent, phone-credential unlock, protected windows, account-scoped sign-out and local erasure.
 
 To connect, the client copies their account UID from **Settings**. The trainer enters it under **Clients**; the client reviews the request under **Trainers** and accepts. Body weight stays private until its separate sharing switch is enabled.
+
+Version 1.1.0 preserves existing signed records. Cross-device duplicate-date/week conflicts use signed schema-2 resolutions; update all participating devices before exchanging these resolutions. Clients can view the inherited weekly schedule offline; only the trainer publishes its new signed weekly copy.
 
 ## Technology stack
 

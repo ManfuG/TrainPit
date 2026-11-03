@@ -91,4 +91,15 @@ The synthetic dashboard scenario produced two sessions, three completed sets, 25
 
 This UI refresh did not repeat API 26, physical-phone, production-backend or archive-picker verification; the preceding 1.0.0 results remain historical evidence, not new coverage.
 
+### Version 1.1.0 workflow verification — 2026-11-03
+
+- Debug/release builds and Android lint passed. All 24 JVM model/signing/archive/revision tests passed, including byte-identical schema-1 serialization and explicit schema-2 slot ancestry.
+- API 36: 18 Android tests passed across shared Room repositories, daily/weekly uniqueness, rollover, deletion/restoration, stale-device conflicts, account/cloud workflows, exercise aggregation and inherited weekly schedules.
+- The cloud slot test enrolled a second synthetic device, resolved a duplicate date, synchronized schema 2, erased local storage, recovered the exact chosen head/dependencies, replayed an encrypted archive without duplication and corrected the recovered daily record.
+- Native API 36: compact kg/reps entry and explicit last-set copying; unfilled exercises excluded; current-week-only plans; trainer Create plan reopened the existing week's plan; ID-free session review without duplicate title; same-row filters; distinct plan/session/weight colors; weekday date picker; selectable weight/exercise points; light/dark and 1.3× font.
+- A daily correction survived an offline restart and uploaded automatically after reconnect. Emulator cloud readback showed four immutable revisions under one daily weight root, not four measurements.
+- Signed, non-debuggable 1.1.0 installed over signed 1.0.1 and launched on API 36 with the unchanged certificate. Authenticated checks used local Firebase emulators only; no production fixtures were created. Temporary native fixture code was removed.
+
+API 26, physical phones and production-authenticated workflows were not repeated for this release. Schema-2 conflict resolutions require upgraded peers; the Room schema and archive encryption format are unchanged.
+
 These checks do not constitute a physical-phone or independent security audit. API 26 and 36 were exercised; API 37 and intermediate API levels were not individually run. Hardware-backed key protection depends on the actual phone. CI runs build/lint/JVM and Firestore-rule checks; connected Android and native file-picker checks require an emulator/device.

@@ -9,6 +9,8 @@ interface LocalRepository {
     suspend fun savePlan(plan: WorkoutPlan, rootId: String? = null)
     suspend fun saveSession(session: TrainingSession, rootId: String? = null)
     suspend fun saveWeight(weight: BodyWeight, rootId: String? = null)
+    /** Owner-authored current-week copies for active clients; returns the number created. */
+    suspend fun carryForwardPlans(today: String = java.time.LocalDate.now().toString()): Int
     suspend fun deleteRecord(rootId: String)
     suspend fun resolveConflict(rootId: String, keepRevisionId: String)
     suspend fun deleteAllOwnedRecords()

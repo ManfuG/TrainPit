@@ -193,6 +193,10 @@ class FirebaseGateway {
             owners.map { uid -> async { permits.withPermit { withTimeout(30_000) { fetchDevices(uid) } } } }.map { it.await() }.flatten()
         }
         local.cacheDevices(keys)
+        // Recover own history before rollover, so known cloud deletions reserve their weeks.
+        val known = local.state.value.entries.associateByTo(HashMap()) { it.id }
+        var downloaded = pull(local, local.profile.uid, null, null, known)
+        local.carryForwardPlans()
         var uploaded = 0
         var blocked = 0
         var pendingCursor: String? = null
@@ -234,8 +238,7 @@ class FirebaseGateway {
                 uploaded += pending.size
             }
         }
-        val known = local.state.value.entries.associateByTo(HashMap()) { it.id }
-        var downloaded = pull(local, local.profile.uid, null, null, known)
+        // Newly authored copies upload in this same synchronization pass.
         for (relation in relations.filter { it.status == RelationshipStatus.ACTIVE }) {
             if (local.profile.role == Role.CLIENT) {
                 downloaded += pull(local, relation.trainerId, local.profile.uid, EntryKind.PLAN, known)
@@ -281,11 +284,12 @@ class FirebaseGateway {
                     }
                     require(visiting.add(entry.id) && visiting.size <= 50_000) { "Invalid or excessive revision ancestry." }
                     stack.addLast(entry to true)
-                    for (parentId in entry.parents.asReversed()) {
+                    for (parentId in (entry.parents + entry.slotParents).asReversed()) {
                         val parent = known[parentId] ?: closure[parentId] ?: batch[parentId] ?: withTimeout(25_000) {
                             decodeEntry(entry.ownerId, entries(entry.ownerId).document(parentId).get(Source.SERVER).await())
                         }
-                        require(parent.ownerId == entry.ownerId && parent.rootId == entry.rootId && parent.subjectId == entry.subjectId && parent.kind == entry.kind) { "Revision ancestry crossed an ownership boundary." }
+                        require(parent.ownerId == entry.ownerId && parent.subjectId == entry.subjectId && parent.kind == entry.kind &&
+                            (parentId in entry.slotParents || parent.rootId == entry.rootId)) { "Revision ancestry crossed an ownership boundary." }
                         stack.addLast(parent to false)
                     }
                 }

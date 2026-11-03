@@ -31,6 +31,9 @@ class RoomLocalRepository private constructor(
     private val devices = LinkedHashMap<String, DeviceKey>()
     private val cursors = HashMap<String, RemoteCursor>()
     private var relationships = emptyList<Relationship>()
+    private var recordGeneration = 0L
+    private var carriedGeneration = -1L
+    private var carriedWeek: String? = null
     private val mutableState = MutableStateFlow(LocalState(profile = profile))
     override val state: StateFlow<LocalState> = mutableState.asStateFlow()
     @Volatile private var closed = false
@@ -92,6 +95,7 @@ class RoomLocalRepository private constructor(
         entries[entry.id] = entry
         roots.getOrPut(entry.rootId) { ArrayList() }.add(entry)
         if (pending) pendingIds.add(entry.id)
+        recordGeneration++
     }
     private fun publish() { mutableState.value = LocalState(profile, relationships, entries.values.toList(), pendingIds.size) }
     private fun heads(root: String): List<Entry> {
@@ -141,7 +145,8 @@ class RoomLocalRepository private constructor(
         require(profile.role == Role.TRAINER) { "Only trainers can publish training plans." }
         validatePlan(plan)
         require(relationships.any { it.trainerId == profile.uid && it.clientId == plan.clientId && it.status == RelationshipStatus.ACTIVE }) { "The client must accept an active relationship before you publish a plan." }
-        save(EntryKind.PLAN, plan.clientId, rootId, plan = plan)
+        val slot = RecordSlot(profile.uid, plan.clientId, EntryKind.PLAN, plan.weekStart)
+        save(EntryKind.PLAN, plan.clientId, rootForSlot(slot, rootId), plan = plan, restoreDeleted = rootId == null)
     }
     override suspend fun saveSession(session: TrainingSession, rootId: String?) = locked {
         require(profile.role == Role.CLIENT) { "Only clients can record their sessions." }
@@ -150,20 +155,80 @@ class RoomLocalRepository private constructor(
     }
     override suspend fun saveWeight(weight: BodyWeight, rootId: String?) = locked {
         require(profile.role == Role.CLIENT) { "Only clients can record their body weight." }
-        save(EntryKind.WEIGHT, profile.uid, rootId, weight = weight)
+        val slot = RecordSlot(profile.uid, profile.uid, EntryKind.WEIGHT, weight.date)
+        save(EntryKind.WEIGHT, profile.uid, rootForSlot(slot, rootId), weight = weight, restoreDeleted = rootId == null)
     }
 
-    private suspend fun save(kind: EntryKind, subjectId: String, rootId: String?, plan: WorkoutPlan? = null, session: TrainingSession? = null, weight: BodyWeight? = null) {
+    private fun rootForSlot(slot: RecordSlot, requestedRoot: String?): String? {
+        val logical = recordHeads(entries.values.toList())
+        val physical = logical.values.flatten().groupBy { it.rootId }
+        val occupants = physical.filterValues { heads -> heads.any { recordSlot(it) == slot } }
+        val live = occupants.filterValues { heads -> heads.any { !it.deleted } }
+        val label = if (slot.kind == EntryKind.PLAN) "weekly plan" else "daily weight"
+        if (requestedRoot != null) {
+            ownedHeads(requestedRoot)
+            val group = logical.values.singleOrNull { heads -> heads.any { it.rootId == requestedRoot } }
+                ?: throw IllegalArgumentException("This record was superseded by a slot resolution. Open the current record instead.")
+            val current = group.filter { it.rootId == requestedRoot }
+            require(current.size == 1 && !current.single().deleted) { "Resolve this record's conflict or deletion before editing it." }
+            require(group.size == 1) { "Resolve the conflicting $label records in History before editing." }
+            val moving = recordSlot(current.single()) != slot
+            require((if (moving) occupants else live).keys.none { it != requestedRoot }) { "That date already has a $label record. Open that record instead, or choose another date." }
+            return requestedRoot
+        }
+        require(live.size <= 1 && live.values.all { it.size == 1 }) { "Resolve the conflicting $label records in History before saving." }
+        val existing = live.keys.singleOrNull()
+        if (existing != null) {
+            val group = logical.values.single { heads -> heads.any { it.rootId == existing } }
+            require(group.size == 1) { "Resolve the conflicting $label records in History before saving." }
+            return existing
+        }
+        if (occupants.size == 1 && occupants.values.single().size == 1) return occupants.keys.single()
+        require(occupants.isEmpty()) { "Resolve the conflicting $label deletion records in History before saving." }
+        return null
+    }
+
+    override suspend fun carryForwardPlans(today: String): Int = locked {
+        if (profile.role != Role.TRAINER) return@locked 0
+        val week = mondayOfWeek(today)
+        if (carriedWeek == week && carriedGeneration == recordGeneration) return@locked 0
+        val logical = recordHeads(entries.values.toList()).values
+        val physical = logical.flatten().filter { it.ownerId == profile.uid && it.kind == EntryKind.PLAN }
+        val copies = ArrayList<Entry>()
+        relationships.filter { it.trainerId == profile.uid && it.status == RelationshipStatus.ACTIVE }.forEach { relationship ->
+            val clientHeads = physical.filter { it.subjectId == relationship.clientId }
+            // Any current-week head, including a tombstone, reserves the slot.
+            if (clientHeads.any { it.plan!!.weekStart == week }) return@forEach
+            val priorWeek = clientHeads.map { it.plan!!.weekStart }.filter { it < week }.maxOrNull() ?: return@forEach
+            val candidates = logical.filter { heads -> heads.any {
+                it.ownerId == profile.uid && it.subjectId == relationship.clientId && it.plan?.weekStart == priorWeek && !it.deleted
+            } }
+            val source = candidates.singleOrNull()?.singleOrNull()?.takeUnless { it.deleted } ?: return@forEach
+            val plan = source.plan!!.copy(weekStart = week)
+            validatePlan(plan)
+            val id = newId()
+            copies.add(crypto.sign(Entry(id = id, rootId = id, ownerId = profile.uid, subjectId = relationship.clientId,
+                kind = EntryKind.PLAN, deviceId = device.deviceId, plan = plan)))
+        }
+        if (copies.isNotEmpty()) commit(copies)
+        carriedWeek = week
+        carriedGeneration = recordGeneration
+        copies.size
+    }
+
+    private suspend fun save(kind: EntryKind, subjectId: String, rootId: String?, plan: WorkoutPlan? = null, session: TrainingSession? = null, weight: BodyWeight? = null, restoreDeleted: Boolean = false) {
         val id = newId()
         val parents = if (rootId == null) emptyList() else {
-            val heads = ownedHeads(rootId)
+            val heads = logicalHeads(rootId)
             require(heads.size == 1) { "Resolve this record's conflicting revisions before editing it." }
-            require(!heads.single().deleted) { "This record is deleted. Resolve its deletion explicitly instead of editing an old copy." }
+            require(!heads.single().deleted || restoreDeleted) { "This record is deleted. Create a new measurement or plan for that date to restore it instead of editing an old copy." }
             require(heads.single().kind == kind && heads.single().subjectId == subjectId) { "A revision cannot change its record kind or client." }
-            heads.map { it.id }
+            heads
         }
+        val previous = parents.singleOrNull()
         commit(listOf(crypto.sign(Entry(id = id, rootId = rootId ?: id, ownerId = profile.uid, subjectId = subjectId, kind = kind,
-            deviceId = device.deviceId, parents = parents, plan = plan, session = session, weight = weight))))
+            deviceId = device.deviceId, parents = parents.map { it.id }, plan = plan, session = session, weight = weight,
+            schemaVersion = previous?.schemaVersion ?: 1, slotParents = previous?.slotParents.orEmpty()))))
     }
 
     private fun ownedHeads(rootId: String): List<Entry> {
@@ -171,8 +236,13 @@ class RoomLocalRepository private constructor(
         require(result.isNotEmpty() && result.all { it.ownerId == profile.uid }) { "Only the owner can change or delete this record." }
         return result
     }
-    private fun authoredCopy(source: Entry, parents: List<Entry>, deleted: Boolean): Entry = crypto.sign(source.copy(
-        id = newId(), deviceId = device.deviceId, createdAt = System.currentTimeMillis(), parents = parents.map { it.id }.sorted(), deleted = deleted, signature = ""))
+    private fun authoredCopy(source: Entry, parents: List<Entry>, deleted: Boolean): Entry {
+        val slotParents = (source.slotParents + parents.flatMap { it.slotParents }).distinct().sorted()
+        return crypto.sign(source.copy(id = newId(), deviceId = device.deviceId, createdAt = System.currentTimeMillis(),
+            parents = parents.map { it.id }.sorted(), deleted = deleted, signature = "",
+            schemaVersion = maxOf(source.schemaVersion, parents.maxOf { it.schemaVersion }, if (slotParents.isEmpty()) 1 else 2),
+            slotParents = slotParents))
+    }
 
     private fun resolutionChain(source: Entry, heads: List<Entry>, deleted: Boolean): List<Entry> {
         val result = ArrayList<Entry>()
@@ -188,25 +258,40 @@ class RoomLocalRepository private constructor(
         return result
     }
 
+    private fun logicalHeads(rootId: String): List<Entry> {
+        ownedHeads(rootId)
+        return recordHeads(entries.values.toList()).values.singleOrNull { group -> group.any { it.rootId == rootId } }
+            ?: throw IllegalArgumentException("This record was superseded by a slot resolution. Open the current record instead.")
+    }
+
+    private fun slotResolution(source: Entry, group: List<Entry>, deleted: Boolean): List<Entry> {
+        val slotParents = (source.slotParents + group.filter {
+            it.rootId != source.rootId && recordSlot(it) == recordSlot(source)
+        }.map { it.id }).distinct().sorted()
+        val chosen = source.copy(slotParents = slotParents, schemaVersion = if (slotParents.isEmpty()) source.schemaVersion else 2)
+        return resolutionChain(chosen, group.filter { it.rootId == source.rootId }, deleted)
+    }
+
     override suspend fun deleteRecord(rootId: String) = locked<Unit> {
-        val heads = ownedHeads(rootId)
-        if (heads.size == 1 && heads.single().deleted) return@locked
-        commit(resolutionChain(heads.first(), heads, deleted = true))
+        val group = logicalHeads(rootId)
+        if (group.size == 1 && group.single().deleted) return@locked
+        commit(slotResolution(group.first(), group, deleted = true))
     }
     override suspend fun resolveConflict(rootId: String, keepRevisionId: String) = locked<Unit> {
-        val heads = ownedHeads(rootId)
-        require(heads.size > 1) { "This record has no unresolved conflict." }
-        val chosen = heads.singleOrNull { it.id == keepRevisionId } ?: throw IllegalArgumentException("Choose one of this record's current conflict branches.")
+        val group = logicalHeads(rootId)
+        require(group.size > 1) { "This record has no unresolved conflict." }
+        val chosen = group.singleOrNull { it.id == keepRevisionId } ?: throw IllegalArgumentException("Choose one of this record's current conflict branches.")
         if (!chosen.deleted && chosen.kind == EntryKind.PLAN) require(relationships.any {
             it.trainerId == profile.uid && it.clientId == chosen.subjectId && it.status == RelationshipStatus.ACTIVE
         }) { "An active client relationship is required to restore or publish a plan." }
-        commit(resolutionChain(chosen, heads, chosen.deleted))
+        commit(slotResolution(chosen, group, chosen.deleted))
     }
     override suspend fun deleteAllOwnedRecords() = locked<Unit> {
-        val tombstones = roots.keys.flatMap { root ->
-            val heads = heads(root)
-            if (heads.firstOrNull()?.ownerId != profile.uid || (heads.size == 1 && heads.single().deleted)) emptyList()
-            else resolutionChain(heads.first(), heads, deleted = true)
+        val tombstones = recordHeads(entries.values.toList()).values.flatMap { group ->
+            group.groupBy { it.rootId }.values.flatMap { heads ->
+                if (heads.first().ownerId != profile.uid || (heads.size == 1 && heads.single().deleted)) emptyList()
+                else resolutionChain(heads.first(), heads, deleted = true)
+            }
         }
         if (tombstones.isNotEmpty()) commit(tombstones)
     }
@@ -238,6 +323,7 @@ class RoomLocalRepository private constructor(
             if (scopeChanged) dao.clearCursors()
         }
         this.relationships = relationships.toList()
+        recordGeneration++
         removed.forEach { id ->
             val entry = entries.remove(id)!!
             roots[entry.rootId]?.remove(entry)
@@ -308,7 +394,7 @@ class RoomLocalRepository private constructor(
             val entry = queue.removeFirst()
             if (selected.putIfAbsent(entry.id, entry) != null) continue
             require(selected.size <= ArchiveCodec.MAX_ENTRIES) { "Too many revisions. Export fewer sessions." }
-            entry.parents.forEach { id ->
+            (entry.parents + entry.slotParents).forEach { id ->
                 val parent = entries[id] ?: throw IllegalStateException("A parent revision is unavailable. Synchronize complete history before export.")
                 require(parent.subjectId == subjectId && canReadEntry(profile, relationships, parent)) { "Required ancestry is no longer authorized for export." }
                 queue.addLast(parent)
@@ -350,7 +436,8 @@ class RoomLocalRepository private constructor(
         val manifest = preview.manifest
         validateArchive(manifest)
         val added = commit(manifest.entries)
-        val conflicts = manifest.entries.map { it.rootId }.toSet().count { heads(it).size > 1 }
+        val importedRoots = manifest.entries.mapTo(HashSet()) { it.rootId }
+        val conflicts = recordHeads(entries.values.toList()).values.count { heads -> heads.size > 1 && heads.any { it.rootId in importedRoots } }
         ImportResult(added, manifest.entries.size - added, conflicts)
     }
     override suspend fun eraseLocal() = locked {

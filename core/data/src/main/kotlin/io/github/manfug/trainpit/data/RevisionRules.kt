@@ -65,6 +65,16 @@ internal object RevisionRules {
                 require(parent.rootId == entry.rootId && parent.ownerId == entry.ownerId && parent.subjectId == entry.subjectId && parent.kind == entry.kind) { "A parent revision belongs to another root, owner, client or record kind." }
                 // Stored revisions were verified when committed; new dependencies are verified above.
             }
+            val inherited = entry.parents.flatMap { lookup(it)!!.slotParents }.toSet()
+            require(entry.slotParents.containsAll(inherited)) { "A revision cannot discard an earlier slot resolution." }
+            require(entry.parents.all { entry.schemaVersion >= lookup(it)!!.schemaVersion }) { "A revision cannot downgrade its record schema." }
+            entry.slotParents.forEach { parentId ->
+                val parent = lookup(parentId) ?: throw IllegalArgumentException("A slot resolution dependency is missing. Synchronize complete history first.")
+                require(parent.rootId != entry.rootId && parent.ownerId == entry.ownerId && parent.subjectId == entry.subjectId && parent.kind == entry.kind) {
+                    "A slot resolution crossed a root, owner, client or record-kind boundary."
+                }
+                require(parentId in inherited || recordSlot(parent) == recordSlot(entry)) { "A slot resolution cannot retire a record from another date or week." }
+            }
             // Plan references are historical annotations, not authorization dependencies.
             entry.session?.planRevisionId?.let { reference ->
                 lookup(reference)?.let { plan ->
@@ -73,9 +83,10 @@ internal object RevisionRules {
             }
         }
         // Iterative topological ordering avoids stack overflow for long, valid histories.
-        val indegree = additions.mapValues { (_, e) -> e.parents.count { it in additions } }.toMutableMap()
+        fun dependencies(entry: Entry) = entry.parents + entry.slotParents
+        val indegree = additions.mapValues { (_, e) -> dependencies(e).count { it in additions } }.toMutableMap()
         val children = HashMap<String, MutableList<String>>()
-        additions.values.forEach { e -> e.parents.filter { it in additions }.forEach { children.getOrPut(it) { ArrayList() }.add(e.id) } }
+        additions.values.forEach { e -> dependencies(e).filter { it in additions }.forEach { children.getOrPut(it) { ArrayList() }.add(e.id) } }
         val ready = ArrayDeque(indegree.filterValues { it == 0 }.keys)
         val ordered = ArrayList<Entry>(additions.size)
         while (ready.isNotEmpty()) {
@@ -97,7 +108,7 @@ internal object RevisionRules {
         require(manifest.entries.map { it.id }.distinct().size == manifest.entries.size) { "The archive contains duplicate revision identifiers." }
         require(manifest.entries.all { it.subjectId == manifest.subjectId }) { "The archive includes another client's records." }
         val entries = manifest.entries.associateBy { it.id }
-        manifest.entries.forEach { e -> require(e.parents.all { it in entries }) { "The archive omits required parent ancestry." } }
+        manifest.entries.forEach { e -> require((e.parents + e.slotParents).all { it in entries }) { "The archive omits required causal ancestry." } }
         if (manifest.selectedSessions) {
             require(manifest.entries.none { it.kind == EntryKind.WEIGHT }) { "Selected-session archives cannot contain body weight." }
             val sessions = manifest.entries.filter { it.kind == EntryKind.SESSION }
@@ -109,7 +120,7 @@ internal object RevisionRules {
                 if (!reachablePlans.add(id)) continue
                 val plan = entries.getValue(id)
                 require(plan.kind == EntryKind.PLAN && plan.subjectId == manifest.subjectId) { "A session references an invalid included plan." }
-                queue.addAll(plan.parents)
+                queue.addAll(plan.parents + plan.slotParents)
             }
             require(manifest.entries.filter { it.kind == EntryKind.PLAN }.all { it.id in reachablePlans }) { "Selected-session archives cannot contain unrelated plans." }
         }

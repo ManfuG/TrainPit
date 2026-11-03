@@ -12,15 +12,15 @@ Implemented per-account Room databases, Android Keystore row encryption and sign
 
 ## 3. Weekly training plans
 
-Implemented trainer-authored weekly schedules, exercises and targets, assignment, immutable updates, offline client viewing, and exact historical plan references from completed sessions.
+Implemented one trainer-owned plan per client/week, immutable corrections, current-week-only schedules, owner-signed automatic carry-forward and offline inherited viewing. Deleted/conflicted slots do not repeat; historical session references remain exact.
 
 ## 4. Logging and body metrics
 
-Implemented client-owned sessions, actual completed sets, weights/repetitions, body-weight measurements, corrections and logical deletions. From Overview, tapping today's workout or an exercise opens the session editor for today's exercises; the body-weight add button records a measurement. Integer grams are the storage unit; actual results are never prefilled from prescribed targets.
+Implemented compact exercise-grouped kg/reps entry, explicit last-set copying, one body-weight record per date, corrections and logical deletions. Repeated daily entry updates its existing root. Date pickers and displayed dates include weekdays; prescribed targets never become actual results automatically.
 
 ## 5. Dashboards, charts, and statistics
 
-Overview focuses on today's workout and the body-weight trend; weekly schedules stay in Plans. History & stats contains past records, corrections and conflict review. Trainer views are read-only and restricted to authorized clients, with separate body-weight consent. Empty or incomplete histories do not invent measurements.
+Overview focuses on today's workout and selectable body-weight chart points. History & stats uses distinct record-type colors, same-row filters and ID-free review. Session details chart daily maximum load and total reps per exercise across authorized current session heads. Trainer monitoring remains read-only and consent-scoped; missing data is not invented.
 
 ## 6. Synchronization and history import/export
 

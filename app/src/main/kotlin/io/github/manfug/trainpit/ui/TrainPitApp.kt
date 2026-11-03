@@ -101,7 +101,7 @@ private fun SignedInApp(controller: TrainPitController, profile: Profile, state:
     var pending by editing::pending
     var archive by editing::archive
     val readable = remember(state.entries, state.relationships, profile) { state.entries.filter { canReadEntry(profile, state.relationships, it) } }
-    val heads = remember(readable) { revisionHeads(readable) }
+    val heads = remember(readable) { recordHeads(readable) }
     val records = remember(heads) { heads.values.mapNotNull { it.singleOrNull()?.takeUnless(Entry::deleted) } }
     val subject = if (profile.role == Role.CLIENT) profile.uid else selectedClient
         ?: state.activeRelationships.firstOrNull { it.trainerId == profile.uid }?.clientId
@@ -123,7 +123,14 @@ private fun SignedInApp(controller: TrainPitController, profile: Profile, state:
         }
     }
     val startSession: (Entry, Int) -> Unit = { entry, day -> if (profile.role == Role.CLIENT) editing.editor = Editor.Session(plan = entry, day = day) }
-    val newPlan: (String) -> Unit = { id -> if (profile.role == Role.TRAINER) editing.editor = Editor.Plan(id) }
+    val newPlan: (String) -> Unit = { id ->
+        if (profile.role == Role.TRAINER) {
+            val week = monday().toString()
+            val existing = heads.values.firstOrNull { group -> group.any { it.ownerId == profile.uid && it.subjectId == id && it.plan?.weekStart == week && !it.deleted } }
+            if (existing != null && existing.size > 1) { selectedClient = id; destination = Destination.HISTORY }
+            else editing.editor = Editor.Plan(id, existing?.singleOrNull())
+        }
+    }
     fun prepareSave(root: String?): Boolean {
         val original = when (editor) {
             is Editor.Plan -> editor.entry
@@ -131,7 +138,7 @@ private fun SignedInApp(controller: TrainPitController, profile: Profile, state:
             is Editor.Weight -> editor.entry
             null -> null
         }
-        if (root != null && heads[root]?.singleOrNull()?.id != original?.id) {
+        if (root != null && heads.values.firstOrNull { group -> group.any { it.rootId == root } }?.singleOrNull()?.id != original?.id) {
             editing.error = "This record changed while you were editing. Your draft is still here. Cancel and reopen the latest record, or resolve its conflict in History, before editing again."
             return false
         }
@@ -165,8 +172,11 @@ private fun SignedInApp(controller: TrainPitController, profile: Profile, state:
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             Box(Modifier.widthIn(max = 1000.dp).fillMaxSize()) {
                 when (destination) {
-                    Destination.OVERVIEW -> DashboardScreen(profile, state, records, subject, { selectedClient = it }, { editing.editor = Editor.Weight() }, startSession)
-                    Destination.PLANS -> PlansScreen(profile, state, records, subject, { selectedClient = it }, edit, newPlan, startSession)
+                    Destination.OVERVIEW -> DashboardScreen(profile, state, records, subject, { selectedClient = it }, {
+                        val today = java.time.LocalDate.now().toString()
+                        editing.editor = Editor.Weight(records.firstOrNull { it.ownerId == profile.uid && it.weight?.date == today })
+                    }, startSession)
+                    Destination.PLANS -> PlansScreen(profile, state, subject, { selectedClient = it }, edit, newPlan, startSession)
                     Destination.CONNECTIONS -> ConnectionsScreen(profile, state, controller, busy, { selectedClient = it; destination = Destination.OVERVIEW }, newPlan)
                     Destination.HISTORY -> HistoryScreen(profile, state, heads, subject, { selectedClient = it }, controller, busy, edit, { id, roots -> archive = ArchiveRequest.Export(id, roots) })
                     Destination.SETTINGS -> SettingsScreen(profile, state, syncLabel, busy, controller, { archive = ArchiveRequest.Export(it) }, { archive = ArchiveRequest.Import })

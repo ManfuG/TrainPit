@@ -61,7 +61,7 @@ class ModelsTest {
     @Test fun signedRecordBoundariesRejectCrossOwnerMetricsUnknownSchemasAndPaths() {
         validateEntry(weight())
         assertThrows(IllegalArgumentException::class.java) { validateEntry(weight().copy(ownerId = "trainer")) }
-        assertThrows(IllegalArgumentException::class.java) { validateEntry(weight().copy(schemaVersion = 2)) }
+        assertThrows(IllegalArgumentException::class.java) { validateEntry(weight().copy(schemaVersion = 3)) }
         assertThrows(IllegalArgumentException::class.java) { validateEntry(weight().copy(id = "nested/path")) }
         assertThrows(IllegalArgumentException::class.java) { validateEntry(weight().copy(parents = listOf("bad/path"))) }
         assertThrows(IllegalArgumentException::class.java) { validateEntry(weight().copy(weight = BodyWeight("2026-11-02", 0))) }
@@ -73,5 +73,65 @@ class ModelsTest {
         }
         validateEntry(weight().copy(weight = BodyWeight("0001-01-01", 80_000)))
         validateEntry(weight().copy(weight = BodyWeight("9999-12-31", 80_000)))
+    }
+
+    @Test fun independentFirstSavesAndLegacyRootsShareOneConflictedDailySlot() {
+        val first = weight()
+        val second = weight("legacy-uuid").copy(rootId = "legacy-uuid", createdAt = 0, weight = BodyWeight("2026-11-02", 81_000))
+        val heads = recordHeads(listOf(first, second))
+        assertEquals(1, heads.size)
+        assertEquals(setOf(first, second), heads.values.single().toSet())
+        assertEquals(heads, recordHeads(listOf(second, first)))
+        assertTrue(activeEntries(listOf(first, second)).isEmpty())
+        assertEquals(2, revisionHeads(listOf(first, second)).size)
+    }
+
+    @Test fun datesAreCurrentAssignmentsNotPermanentRootAliases() {
+        val original = weight()
+        val moved = weight("moved", listOf("root")).copy(weight = BodyWeight("2026-11-03", 80_000))
+        val other = weight("other-day").copy(rootId = "other-day")
+        assertEquals(2, activeEntries(listOf(original, moved, other)).size)
+        val collision = other.copy(weight = BodyWeight("2026-11-03", 79_000))
+        assertTrue(activeEntries(listOf(original, moved, collision)).isEmpty())
+    }
+
+    @Test fun weeklySlotsRemainIndependentBetweenTrainersAndClients() {
+        val plan = WorkoutPlan("client", "Strength", "2026-11-02",
+            listOf(WorkoutDay(1, listOf(ExercisePrescription("squat", "Squat", 3, 8)))))
+        val first = Entry(id = "first", rootId = "first", ownerId = "trainer", subjectId = "client",
+            kind = EntryKind.PLAN, deviceId = "device", plan = plan, signature = "signed")
+        val duplicate = first.copy(id = "duplicate", rootId = "duplicate", createdAt = 999)
+        val otherTrainer = first.copy(id = "other-trainer", rootId = "other-trainer", ownerId = "trainer-2")
+        val otherClient = first.copy(id = "other-client", rootId = "other-client", subjectId = "client-2", plan = plan.copy(clientId = "client-2"))
+        val history = listOf(first, duplicate, otherTrainer, otherClient)
+        assertEquals(3, recordHeads(history).size)
+        assertEquals(setOf(otherTrainer, otherClient), activeEntries(history).toSet())
+        assertEquals("2026-11-02", mondayOfWeek("2026-11-08"))
+        assertEquals("2026-11-09", mondayOfWeek("2026-11-09"))
+    }
+
+    @Test fun schemaTwoResolutionNamesExactHeadsAndLaterConcurrentDescendantsReopenConflict() {
+        val original = weight()
+        val duplicate = weight("duplicate").copy(rootId = "duplicate")
+        val resolved = weight("resolved", listOf("root")).copy(schemaVersion = 2, slotParents = listOf("duplicate"))
+        val history = listOf(original, duplicate, resolved)
+        assertEquals(listOf(resolved), activeEntries(history))
+        val concurrent = duplicate.copy(id = "concurrent", parents = listOf("duplicate"), weight = BodyWeight("2026-11-02", 82_000))
+        assertTrue(activeEntries(history + concurrent).isEmpty())
+        assertEquals(2, recordHeads(history + concurrent).values.single().size)
+        val deleted = resolved.copy(id = "deleted", parents = listOf("resolved"), deleted = true)
+        val staleFirstSave = duplicate.copy(id = "stale-clone", rootId = "stale-clone")
+        assertTrue(activeEntries(history + deleted + staleFirstSave).isEmpty())
+        assertEquals(2, recordHeads(history + deleted + staleFirstSave).values.single().size)
+    }
+
+    @Test fun schemaOneCanonicalSigningBytesRemainExactlyCompatible() {
+        val original = weight().copy(createdAt = 1)
+        val legacy = """{"id":"root","rootId":"root","ownerId":"client","subjectId":"client","kind":"WEIGHT","deviceId":"device","createdAt":1,"parents":[],"deleted":false,"plan":null,"session":null,"weight":{"date":"2026-11-02","grams":80000},"signature":"","schemaVersion":1}"""
+        assertArrayEquals(legacy.toByteArray(Charsets.UTF_8), original.signingBytes())
+        assertEquals(original, TrainPitJson.decodeFromString(Entry.serializer(), TrainPitJson.encodeToString(Entry.serializer(), original)))
+        assertThrows(IllegalArgumentException::class.java) {
+            validateEntry(original.copy(parents = listOf("old"), slotParents = listOf("other")))
+        }
     }
 }

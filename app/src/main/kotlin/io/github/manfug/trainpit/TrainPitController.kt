@@ -78,6 +78,7 @@ class TrainPitController(application: Application) : AndroidViewModel(applicatio
             throw IllegalStateException("The active account changed. Sign in again.")
         }
         repository = local
+        local.carryForwardPlans()
         _localState.value = local.state.value
         _authState.value = AuthState(loading = false, profile = profile)
         observer = viewModelScope.launch { local.state.collect { if (repository === local) _localState.value = it } }
@@ -138,13 +139,15 @@ class TrainPitController(application: Application) : AndroidViewModel(applicatio
 
     private suspend fun synchronize(manual: Boolean) = syncMutex.withLock {
         val local = repository ?: return@withLock
-        if (!hasNetwork()) {
-            _syncLabel.value = "Offline · changes stay on this device"
-            if (manual) _message.value = "No connection. Your local records are available and changes will sync later."
-            return@withLock
-        }
-        _syncLabel.value = "Synchronizing…"
         try {
+            // Calendar rollover is local work and must also run without connectivity.
+            local.carryForwardPlans()
+            if (!hasNetwork()) {
+                _syncLabel.value = "Offline · changes stay on this device"
+                if (manual) _message.value = "No connection. Your local records are available and changes will sync later."
+                return@withLock
+            }
+            _syncLabel.value = "Synchronizing…"
             val report = gateway.synchronize(local)
             if (repository !== local) return@withLock
             _syncLabel.value = if (report.blocked > 0) "${report.blocked} plan updates kept locally · connection ended" else "Up to date · checked just now"

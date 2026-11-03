@@ -3,7 +3,10 @@ package io.github.manfug.trainpit.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -58,7 +61,7 @@ internal class PlanDraft(editor: Editor.Plan) {
 internal fun PlanEditor(editor: Editor.Plan, draft: PlanDraft, saving: Boolean, onClose: () -> Unit, onSave: (WorkoutPlan, String?) -> Unit) {
     val plan = editor.entry?.plan
     var title by draft.title
-    var week by draft.week
+    val week by draft.week
     var rows by draft.rows
     var error by remember { mutableStateOf<String?>(null) }
     var removing by remember { mutableStateOf<String?>(null) }
@@ -75,7 +78,7 @@ internal fun PlanEditor(editor: Editor.Plan, draft: PlanDraft, saving: Boolean, 
         } catch (e: IllegalArgumentException) { error = e.message ?: "Check the plan fields." }
     }) {
         Input(title, { title = it }, "Plan title")
-        Input(week, { week = it }, "Week starts (Monday, YYYY-MM-DD)")
+        Text(displayDate(week), color = MaterialTheme.colorScheme.onSurfaceVariant)
         rows.forEachIndexed { index, row ->
             key(row.id) {
                 InfoCard("Exercise ${index + 1}") {
@@ -86,7 +89,7 @@ internal fun PlanEditor(editor: Editor.Plan, draft: PlanDraft, saving: Boolean, 
                         Input(row.sets, { update(row.copy(sets = it)) }, "Sets", Modifier.weight(1f), numeric = true)
                         Input(row.reps, { update(row.copy(reps = it)) }, "Reps per set", Modifier.weight(1f), numeric = true)
                     }
-                    Input(row.kg, { update(row.copy(kg = it)) }, "Target load (kg, optional)", numeric = true, help = "Use 0 for no external load; leave blank if unspecified.")
+                    Input(row.kg, { update(row.copy(kg = it)) }, "Target load (kg, optional)", numeric = true)
                     TextButton(onClick = { removing = row.id }, enabled = !saving) { Text("Remove exercise") }
                 }
             }
@@ -127,39 +130,59 @@ internal fun SessionEditor(editor: Editor.Session, draft: SessionDraft, saving: 
     var title by draft.title
     var date by draft.date
     var rows by draft.rows
+    var details by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var removing by remember { mutableStateOf<String?>(null) }
-    EditorFrame(if (session == null) "Log training session" else "Correct training session", title != draft.initialTitle || date != draft.initialDate || rows != draft.originalRows,
+    val exercises = remember(rows) {
+        rows.groupBy { it.prescriptionId?.let { id -> "plan:$id" } ?: it.name.trim().lowercase(java.util.Locale.ENGLISH).let { name -> if (name.isBlank()) it.id else "name:$name" } }
+    }
+    EditorFrame(if (session == null) "Record workout" else "Edit workout", title != draft.initialTitle || date != draft.initialDate || rows != draft.originalRows,
         saving, onClose, onSave = {
             try {
-                val result = TrainingSession(requireDate(date), title.trim(), rows.map {
-                    SetResult(it.id, it.name.trim(), it.reps.toIntOrNull() ?: throw IllegalArgumentException("Enter actual repetitions for every completed set."),
+                val completed = rows.filter { it.reps.isNotBlank() || it.kg.isNotBlank() }
+                val result = TrainingSession(requireDate(date), title.trim(), completed.map {
+                    SetResult(it.id, it.name.trim(), it.reps.toIntOrNull() ?: throw IllegalArgumentException("Enter reps for each recorded set."),
                         parseKilograms(it.kg, allowZero = true), it.prescriptionId)
                 }, session?.planRevisionId ?: editor.plan?.id, session?.dayOfWeek ?: editor.day)
                 validateSession(result); error = null; onSave(result, editor.entry?.rootId)
             } catch (e: IllegalArgumentException) { error = e.message ?: "Check the session fields." }
         }) {
-        Input(title, { title = it }, "Session title")
-        Input(date, { date = it }, "Training date (YYYY-MM-DD)")
-        rows.forEachIndexed { index, row ->
-            key(row.id) {
-                InfoCard("Completed set ${index + 1}") {
-                    fun update(value: SetDraft) { rows = rows.map { if (it.id == row.id) value else it } }
-                    row.target?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    Input(row.name, { update(row.copy(name = it)) }, "Exercise name")
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Input(row.reps, { update(row.copy(reps = it)) }, "Actual reps", Modifier.weight(1f), numeric = true)
-                        Input(row.kg, { update(row.copy(kg = it)) }, "Actual kg", Modifier.weight(1f), numeric = true)
+        if (details) Input(title, { title = it }, "Workout name")
+        else Text(title, style = MaterialTheme.typography.titleLarge)
+        DateInput(date, { date = it }, "Date")
+        TextButton(onClick = { details = !details }, enabled = !saving) { Text(if (details) "Done editing details" else "Edit details") }
+        exercises.values.forEach { sets ->
+            key(sets.first().id) {
+                InfoCard(sets.first().name.ifBlank { "Exercise" }) {
+                    if (details || sets.first().name.isBlank()) Input(sets.first().name, { name ->
+                        val ids = sets.mapTo(HashSet()) { it.id }
+                        rows = rows.map { if (it.id in ids) it.copy(name = name) else it }
+                    }, "Exercise name")
+                    sets.first().target?.let { Text(it.removePrefix("Plan: "), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    sets.forEachIndexed { index, row ->
+                        key(row.id) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("${index + 1}", Modifier.width(24.dp), style = MaterialTheme.typography.labelLarge)
+                                Input(row.kg, { value -> rows = rows.map { if (it.id == row.id) it.copy(kg = value) else it } }, "kg", Modifier.weight(1f), numeric = true)
+                                Input(row.reps, { value -> rows = rows.map { if (it.id == row.id) it.copy(reps = value) else it } }, "reps", Modifier.weight(1f), numeric = true)
+                                IconButton(onClick = { removing = row.id }, enabled = !saving,
+                                    modifier = Modifier.semantics { contentDescription = "Remove ${row.name} set ${index + 1}" }) { Text("−", style = MaterialTheme.typography.titleLarge) }
+                            }
+                        }
                     }
-                    OutlinedButton(onClick = { rows = rows + SetDraft(name = row.name, prescriptionId = row.prescriptionId, target = row.target) }, enabled = rows.size < 400 && !saving) { Text("Add set") }
-                    TextButton(onClick = { removing = row.id }, enabled = !saving) { Text("Remove set") }
+                    TextButton(onClick = {
+                        val last = sets.last()
+                        val added = last.copy(id = newId())
+                        val index = rows.indexOfLast { it.id == last.id } + 1
+                        rows = rows.toMutableList().apply { add(index, added) }
+                    }, enabled = rows.size < 400 && !saving) { Text("+ Add set") }
                 }
             }
         }
-        OutlinedButton(onClick = { rows = rows + SetDraft() }, enabled = rows.size < 400 && !saving) { Text("Add another exercise set") }
+        TextButton(onClick = { rows = rows + SetDraft(); details = true }, enabled = rows.size < 400 && !saving) { Text("+ Add exercise") }
         ErrorText(error)
     }
-    if (removing != null) ConfirmDialog("Remove set?", "This set will not be included when you save the session.", "Remove", { removing = null }, { rows = rows.filterNot { it.id == removing }; removing = null })
+    if (removing != null) ConfirmDialog("Remove set?", "This set will not be included when you save the workout.", "Remove", { removing = null }, { rows = rows.filterNot { it.id == removing }; removing = null })
 }
 
 @Composable
@@ -171,7 +194,7 @@ internal fun WeightEditor(editor: Editor.Weight, draft: WeightDraft, saving: Boo
         try { val value = BodyWeight(requireDate(date), parseKilograms(kg)); error = null; onSave(value, editor.entry?.rootId) }
         catch (e: IllegalArgumentException) { error = e.message ?: "Check the date and body weight." }
     }) {
-        Input(date, { date = it }, "Measurement date (YYYY-MM-DD)")
+        DateInput(date, { date = it }, "Date")
         Input(kg, { kg = it }, "Body weight (kg)", numeric = true)
         ErrorText(error)
     }

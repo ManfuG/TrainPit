@@ -3,6 +3,8 @@ package io.github.manfug.trainpit.model
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.util.UUID
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -60,6 +62,7 @@ fun newId(): String = UUID.randomUUID().toString()
 @Serializable data class BodyWeight(val date: String, val grams: Long)
 
 /** Immutable signed revision. Parent ancestry, never wall-clock time, resolves ordering. */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable data class Entry(
     val id: String = newId(),
     val rootId: String,
@@ -75,6 +78,8 @@ fun newId(): String = UUID.randomUUID().toString()
     val weight: BodyWeight? = null,
     val signature: String = "",
     val schemaVersion: Int = 1,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val slotParents: List<String> = emptyList(),
 ) {
     fun signingBytes(): ByteArray = TrainPitJson.encodeToString(copy(signature = "")).toByteArray(Charsets.UTF_8)
 }
@@ -131,7 +136,57 @@ fun revisionHeads(entries: List<Entry>): Map<String, List<Entry>> = entries.grou
     val parents = revisions.flatMapTo(HashSet()) { it.parents }
     revisions.filter { it.id !in parents }
 }
-fun activeEntries(entries: List<Entry>): List<Entry> = revisionHeads(entries).values
+/** Calendar assignment, derived only; never added to schema-1 signed bytes. */
+data class RecordSlot(val ownerId: String, val subjectId: String, val kind: EntryKind, val date: String)
+
+fun recordSlot(entry: Entry): RecordSlot? = when (entry.kind) {
+    EntryKind.PLAN -> entry.plan?.let { RecordSlot(entry.ownerId, entry.subjectId, entry.kind, it.weekStart) }
+    EntryKind.WEIGHT -> entry.weight?.let { RecordSlot(entry.ownerId, entry.subjectId, entry.kind, it.date) }
+    EntryKind.SESSION -> null
+}
+
+fun mondayOfWeek(date: String): String = LocalDate.parse(date).let { it.minusDays((it.dayOfWeek.value - 1).toLong()).toString() }
+
+/**
+ * A slot is one logical record even when offline devices or legacy imports created
+ * different physical roots. Roots remain intact for signatures and historical references.
+ * The key is the smallest remaining physical root ID. Exact cross-root slotParents
+ * are superseded by an owner-signed schema-2 choice; their future descendants are not.
+ */
+fun recordHeads(entries: List<Entry>): Map<String, List<Entry>> {
+    val retired = entries.flatMapTo(HashSet()) { it.slotParents }
+    val physical = revisionHeads(entries).mapValues { (_, heads) -> heads.filter { it.id !in retired } }.filterValues { it.isNotEmpty() }
+    val parent = physical.keys.associateWith { it }.toMutableMap()
+    fun representative(root: String): String {
+        var current = root
+        while (parent.getValue(current) != current) current = parent.getValue(current)
+        var next = root
+        while (parent.getValue(next) != current) {
+            val previous = parent.getValue(next)
+            parent[next] = current
+            next = previous
+        }
+        return current
+    }
+    val slots = HashMap<RecordSlot, String>()
+    physical.forEach { (root, heads) ->
+        heads.forEach { head ->
+            recordSlot(head)?.let { slot ->
+                val previous = slots.putIfAbsent(slot, root)
+                if (previous != null) {
+                    val left = representative(previous)
+                    val right = representative(root)
+                    if (left != right) parent[maxOf(left, right)] = minOf(left, right)
+                }
+            }
+        }
+    }
+    val result = LinkedHashMap<String, MutableList<Entry>>()
+    physical.forEach { (root, heads) -> result.getOrPut(representative(root)) { ArrayList() }.addAll(heads) }
+    return result.mapValues { (_, heads) -> heads.sortedWith(compareBy(Entry::rootId, Entry::id)) }
+}
+
+fun activeEntries(entries: List<Entry>): List<Entry> = recordHeads(entries).values
     .mapNotNull { heads -> heads.singleOrNull()?.takeUnless { it.deleted } }
 
 fun parseKilograms(value: String, allowZero: Boolean = false): Long {
@@ -178,9 +233,14 @@ fun validateSession(session: TrainingSession) {
     }
 }
 fun validateEntry(entry: Entry) {
-    require(entry.schemaVersion == 1) { "This record schema is not supported. Update TrainPit before importing it." }
+    require(entry.schemaVersion in 1..2) { "This record schema is not supported. Update TrainPit before importing it." }
     require(validId(entry.id) && validId(entry.rootId) && validId(entry.ownerId) && validId(entry.subjectId) && validId(entry.deviceId)) { "Invalid record identity." }
     require(entry.parents.size <= 100 && entry.parents.all(::validId) && entry.parents.distinct().size == entry.parents.size && entry.id !in entry.parents) { "Invalid revision parents." }
+    require(entry.slotParents.size <= 50_000 && entry.slotParents.all(::validId) &&
+        entry.slotParents.distinct().size == entry.slotParents.size && entry.id !in entry.slotParents &&
+        (entry.slotParents.isEmpty() || (entry.schemaVersion == 2 && entry.kind != EntryKind.SESSION && entry.parents.isNotEmpty()))) {
+        "Invalid cross-record slot ancestry."
+    }
     require(entry.signature.length in 1..2048 && entry.createdAt in 0..253_402_300_799_999L) { "Invalid signed revision." }
     when (entry.kind) {
         EntryKind.PLAN -> { require(entry.plan != null && entry.session == null && entry.weight == null); validatePlan(entry.plan); require(entry.subjectId == entry.plan.clientId) }

@@ -87,6 +87,44 @@ class RevisionRulesTest {
         RevisionRules.archiveEntries(ArchiveManifest(archiveId = "archive", exporterId = "client", subjectId = "client", selectedSessions = true, entries = listOf(session), devices = listOf(device)))
     }
 
+    @Test fun schemaTwoSlotChoicesRequireAuthorizedCompleteSameSlotCausality() {
+        val root = signed("root")
+        val other = signed("other", root = "other", grams = 76_000)
+        val resolution = sign(signed("resolved", parents = listOf("root")).copy(
+            schemaVersion = 2, slotParents = listOf("other"), signature = ""))
+        val committed = merge(listOf(resolution, other, root))
+        assertEquals(listOf(resolution), activeEntries(committed))
+        rejected { merge(listOf(resolution), listOf(root)) }
+        val nextDay = sign(other.copy(weight = BodyWeight("2026-01-03", 76_000), signature = ""))
+        rejected { merge(listOf(resolution), listOf(root, nextDay)) }
+        val illegalSameRoot = sign(resolution.copy(slotParents = listOf("root"), signature = ""))
+        rejected { merge(listOf(illegalSameRoot), listOf(root)) }
+        val forgotten = signed("forgotten", parents = listOf("resolved"))
+        rejected { merge(listOf(forgotten), committed) }
+        val correction = sign(resolution.copy(id = "corrected", parents = listOf("resolved"),
+            weight = BodyWeight("2026-01-03", 74_500), signature = ""))
+        assertEquals(listOf(correction), activeEntries(committed + merge(listOf(correction), committed)))
+        val late = signed("late", root = "other", parents = listOf("other"), grams = 77_000)
+        assertTrue(activeEntries(committed + merge(listOf(late), committed)).isEmpty())
+        val deleted = sign(resolution.copy(id = "deleted-choice", parents = listOf("resolved"), deleted = true, signature = ""))
+        val staleFirstSave = signed("stale-first", root = "stale-first")
+        assertTrue(activeEntries(committed + merge(listOf(deleted, staleFirstSave), committed)).isEmpty())
+    }
+
+    @Test fun slotDependenciesParticipateInArchiveClosureAndCycleChecks() {
+        val root = signed("root")
+        val other = signed("other", root = "other")
+        val resolution = sign(signed("resolved", parents = listOf("root")).copy(
+            schemaVersion = 2, slotParents = listOf("other"), signature = ""))
+        val manifest = ArchiveManifest(exporterId = "client", subjectId = "client", selectedSessions = false,
+            entries = listOf(root, resolution), devices = listOf(device))
+        rejected { RevisionRules.archiveEntries(manifest) }
+        RevisionRules.archiveEntries(manifest.copy(entries = listOf(root, other, resolution)))
+        val left = sign(signed("left", parents = listOf("root")).copy(schemaVersion = 2, slotParents = listOf("right"), signature = ""))
+        val right = sign(signed("right", root = "other", parents = listOf("other")).copy(schemaVersion = 2, slotParents = listOf("left"), signature = ""))
+        rejected { merge(listOf(root, other, left, right)) }
+    }
+
     private fun rejected(block: () -> Unit) {
         try { block(); fail("The invalid revision was accepted") } catch (_: IllegalArgumentException) { }
     }

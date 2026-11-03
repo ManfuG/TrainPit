@@ -68,14 +68,17 @@ class CloudWorkflowTest {
             assertFalse(trainingStore.state.value.entries.any { it.kind == EntryKind.WEIGHT })
             val exercise = ExercisePrescription(name = "Squat", sets = 2, repetitions = 8, loadGrams = 60_000)
             val prescription = WorkoutPlan(clientProfile.uid, "Weekly strength", week, listOf(WorkoutDay(1, listOf(exercise))))
-            trainingStore.savePlan(prescription)
+            trainingStore.savePlan(prescription.copy(weekStart = LocalDate.parse(week).minusWeeks(3).toString()))
             gateway.synchronize(trainingStore)
-            val original = activeEntries(trainingStore.state.value.entries).single { it.kind == EntryKind.PLAN }
+            assertEquals(0, trainingStore.state.value.pendingCount) // The current-week copy uploads in the same pass.
+            val original = activeEntries(trainingStore.state.value.entries).single { it.plan?.weekStart == week }
+            assertEquals(exercise.id, original.plan!!.days.single().exercises.single().id)
+            assertEquals(2, activeEntries(trainingStore.state.value.entries).count { it.kind == EntryKind.PLAN })
 
             gateway.auth.signOut()
             gateway.signIn(clientEmail, password)
             gateway.synchronize(client)
-            assertEquals(original.id, activeEntries(client.state.value.entries).single { it.kind == EntryKind.PLAN }.id)
+            assertEquals(original.id, activeEntries(client.state.value.entries).single { it.plan?.weekStart == week }.id)
             client.saveSession(TrainingSession(today, "Weekly strength · Monday", listOf(
                 SetResult(exerciseName = "Squat", repetitions = 8, loadGrams = 57_500, prescribedExerciseId = exercise.id),
                 SetResult(exerciseName = "Squat", repetitions = 7, loadGrams = 57_500, prescribedExerciseId = exercise.id),
@@ -99,7 +102,7 @@ class CloudWorkflowTest {
             gateway.auth.signOut()
             gateway.signIn(clientEmail, password)
             gateway.synchronize(client)
-            assertEquals("Updated strength", activeEntries(client.state.value.entries).single { it.kind == EntryKind.PLAN }.plan!!.title)
+            assertEquals("Updated strength", activeEntries(client.state.value.entries).single { it.plan?.weekStart == week }.plan!!.title)
             assertEquals(original.id, activeEntries(client.state.value.entries).single { it.rootId == plannedSession.rootId }.session!!.planRevisionId)
             client.saveWeight(BodyWeight(LocalDate.now().plusDays(1).toString(), 80_750))
             val archivePassword = "Synthetic archive password $suffix"
